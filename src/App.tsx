@@ -87,12 +87,17 @@ export function App() {
       }, 240);
     });
     const removeBlurred = window.islet.window.onBlurred(() => void window.islet.window.collapse());
+    const removeShown = window.islet.window.onShown(() => {
+      setCollapsing(false);
+      setExpanded(false);
+    });
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") void window.islet.window.collapse(); };
     window.addEventListener("keydown", onKey);
     return () => {
       removeExpanded();
       removeStartCollapse();
       removeBlurred();
+      removeShown();
       window.removeEventListener("keydown", onKey);
     };
   }, []);

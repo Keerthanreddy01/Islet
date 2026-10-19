@@ -25,6 +25,11 @@ const api: IsletApi = {
       ipcRenderer.on("window:blurred", handler);
       return () => ipcRenderer.removeListener("window:blurred", handler);
     },
+    onShown: (listener) => {
+      const handler = () => listener();
+      ipcRenderer.on("window:shown", handler);
+      return () => ipcRenderer.removeListener("window:shown", handler);
+    },
     setActiveTab: (tab: Tab) => ipcRenderer.invoke("window:set-tab", tab),
     getSettings: () => ipcRenderer.invoke("settings:get")
   },
@@ -78,7 +83,8 @@ const api: IsletApi = {
     removeEvent: (id) => ipcRenderer.invoke("calendar:remove-event", id)
   },
   settings: {
-    update: (patch) => ipcRenderer.invoke("settings:update", patch)
+    update: (patch) => ipcRenderer.invoke("settings:update", patch),
+    getStartupStatus: () => ipcRenderer.invoke("settings:get-startup-status")
   }
 };
 

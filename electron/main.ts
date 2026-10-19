@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, net, protocol, screen } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, net, nativeImage, protocol, screen, Tray } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,10 +24,13 @@ const EDGE_MARGIN = 12;
 const SETTINGS_FILE = "settings.json";
 
 let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
 let expanded = false;
+let hidden = false;
 let dragOffset = { x: 0, y: 0 };
 let collapseTimer: NodeJS.Timeout | null = null;
 let settings: Settings;
+let registeredHotkey: string | null = null;
 
 const defaultSettings: Settings = {
   hotkey: "Ctrl+Alt+Space",
@@ -39,6 +42,7 @@ const defaultSettings: Settings = {
   snapToEdge: true,
   iconSize: 64,
   closeOnBlur: true,
+  startWithWindows: true,
   positions: {}
 };
 
@@ -80,6 +84,96 @@ const saveSettings = () => {
   } catch (error) {
     console.error("Unable to save Islet settings:", error);
   }
+};
+
+const getStartupStatus = () => app.getLoginItemSettings().openAtLogin;
+
+const applyStartupSetting = (enabled: boolean) => {
+  settings.startWithWindows = enabled;
+  app.setLoginItemSettings({
+    openAtLogin: enabled,
+    path: app.isPackaged ? process.execPath : process.execPath,
+    args: app.isPackaged ? ["--startup"] : [app.getAppPath(), "--startup"],
+    name: "Islet"
+  });
+  saveSettings();
+  updateTrayMenu();
+};
+
+const showIslet = () => {
+  if (!mainWindow) return;
+  hidden = false;
+  expanded = false;
+  mainWindow.showInactive();
+  mainWindow.setAlwaysOnTop(true, "screen-saver");
+  mainWindow.webContents.send("window:shown");
+};
+
+const hideIslet = () => {
+  if (!mainWindow) return;
+  hidden = true;
+  expanded = false;
+  if (collapseTimer) clearTimeout(collapseTimer);
+  collapseTimer = null;
+  mainWindow.hide();
+  mainWindow.webContents.send("window:hidden");
+  updateTrayMenu();
+};
+
+const toggleVisibility = () => {
+  if (hidden || !mainWindow?.isVisible()) showIslet();
+  else hideIslet();
+};
+
+const registerGlobalHotkey = () => {
+  if (registeredHotkey) {
+    globalShortcut.unregister(registeredHotkey);
+    registeredHotkey = null;
+  }
+  const requested = settings.hotkey || defaultSettings.hotkey;
+  if (globalShortcut.register(requested, toggleVisibility)) {
+    registeredHotkey = requested;
+    return true;
+  }
+  if (requested !== defaultSettings.hotkey && globalShortcut.register(defaultSettings.hotkey, toggleVisibility)) {
+    registeredHotkey = defaultSettings.hotkey;
+    settings.hotkey = defaultSettings.hotkey;
+    saveSettings();
+    return false;
+  }
+  console.error(`Unable to register Islet hotkey: ${requested}`);
+  return false;
+};
+
+const trayIcon = () => nativeImage.createFromDataURL(
+  `data:image/svg+xml;charset=utf-8,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><circle cx='16' cy='16' r='14' fill='black' stroke='white'/><circle cx='16' cy='16' r='4' fill='white'/></svg>")}`
+);
+
+const updateTrayMenu = () => {
+  if (!tray) return;
+  const visible = !hidden && Boolean(mainWindow?.isVisible());
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: "Show Islet", enabled: !visible, click: showIslet },
+    { label: "Hide Islet", enabled: visible, click: hideIslet },
+    { type: "separator" },
+    {
+      label: "Start with Windows",
+      type: "checkbox",
+      checked: getStartupStatus(),
+      click: (item) => applyStartupSetting(item.checked)
+    },
+    { label: "Settings", click: () => { showIslet(); mainWindow?.webContents.send("settings:open"); } },
+    { label: "Reset icon position", click: () => { const position = defaultPosition(); mainWindow?.setBounds({ ...position, width: COLLAPSED_SIZE, height: COLLAPSED_SIZE }); persistPosition(position); showIslet(); } },
+    { type: "separator" },
+    { label: "Quit Islet", click: () => app.quit() }
+  ]));
+};
+
+const createTray = () => {
+  tray = new Tray(trayIcon());
+  tray.setToolTip("Islet");
+  tray.on("click", toggleVisibility);
+  updateTrayMenu();
 };
 
 const displayForPosition = (position: WindowPosition) =>
@@ -218,8 +312,10 @@ const createWindow = () => {
   });
   mainWindow.setAlwaysOnTop(true, "screen-saver");
   mainWindow.on("blur", () => {
-    if (settings.closeOnBlur && expanded) mainWindow?.webContents.send("window:blurred");
+    if (!hidden && settings.closeOnBlur && expanded) mainWindow?.webContents.send("window:blurred");
   });
+  mainWindow.on("show", updateTrayMenu);
+  mainWindow.on("hide", updateTrayMenu);
   mainWindow.on("closed", () => { mainWindow = null; });
   if (process.env.VITE_DEV_SERVER_URL) void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   else void mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
@@ -267,11 +363,14 @@ const registerWindowIpc = () => {
 const registerIpc = () => {
   registerWindowIpc();
   ipcMain.handle("window:set-tab", (_event, tab: Tab) => tab);
-  ipcMain.handle("settings:get", () => settings);
+  ipcMain.handle("settings:get", () => ({ ...settings, startWithWindows: getStartupStatus() }));
+  ipcMain.handle("settings:get-startup-status", getStartupStatus);
   ipcMain.handle("settings:update", (_event, patch: Partial<Settings>) => {
     settings = { ...settings, ...patch };
+    if (patch.startWithWindows !== undefined) applyStartupSetting(patch.startWithWindows);
+    if (patch.hotkey !== undefined) registerGlobalHotkey();
     saveSettings();
-    return settings;
+    return { ...settings, startWithWindows: getStartupStatus() };
   });
   ipcMain.handle("media:get-state", () => placeholderMedia);
   ipcMain.handle("media:play-pause", () => undefined);
@@ -317,6 +416,7 @@ app.whenReady().then(() => {
     return;
   }
   settings = loadSettings();
+  if (settings.startWithWindows === undefined) settings.startWithWindows = true;
   registerIpc();
   protocol.handle("islet-art", (request) => {
     const fileName = decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, "");
@@ -324,14 +424,16 @@ app.whenReady().then(() => {
     return net.fetch(`file://${path.join(__dirname, "../assets/artwork", fileName)}`);
   });
   createWindow();
-  globalShortcut.register("CommandOrControl+Alt+Space", () => {
-    if (expanded) requestCollapse();
-    else {
-      expanded = true;
-      resizeToExpanded();
-      mainWindow?.webContents.send("window:expanded");
-    }
-  });
+  applyStartupSetting(settings.startWithWindows);
+  registerGlobalHotkey();
+  createTray();
 });
 
-app.on("will-quit", () => globalShortcut.unregisterAll());
+app.on("second-instance", () => {
+  showIslet();
+});
+
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
+  tray?.destroy();
+});

@@ -64,6 +64,7 @@ export type Settings = {
   snapToEdge: boolean;
   iconSize: number;
   closeOnBlur: boolean;
+  startWithWindows: boolean;
   positions: Record<string, WindowPosition>;
 };
 
@@ -103,6 +104,7 @@ export type IsletApi = {
     onExpanded(listener: () => void): () => void;
     onStartCollapse(listener: () => void): () => void;
     onBlurred(listener: () => void): () => void;
+    onShown(listener: () => void): () => void;
     setActiveTab(tab: Tab): Promise<void>;
     getSettings(): Promise<Settings>;
   };
@@ -145,5 +147,6 @@ export type IsletApi = {
   };
   settings: {
     update(patch: Partial<Settings>): Promise<Settings>;
+    getStartupStatus(): Promise<boolean>;
   };
 };
