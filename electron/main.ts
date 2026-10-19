@@ -26,6 +26,7 @@ const SETTINGS_FILE = "settings.json";
 let mainWindow: BrowserWindow | null = null;
 let expanded = false;
 let dragOffset = { x: 0, y: 0 };
+let collapseTimer: NodeJS.Timeout | null = null;
 let settings: Settings;
 
 const defaultSettings: Settings = {
@@ -182,6 +183,19 @@ const resizeToCollapsed = () => {
   mainWindow.showInactive();
 };
 
+const requestCollapse = () => {
+  if (!expanded || !mainWindow) return;
+  mainWindow.webContents.send("window:start-collapse");
+  if (collapseTimer) clearTimeout(collapseTimer);
+  collapseTimer = setTimeout(() => {
+    if (expanded) {
+      expanded = false;
+      resizeToCollapsed();
+    }
+    collapseTimer = null;
+  }, 320);
+};
+
 const createWindow = () => {
   const position = defaultPosition();
   mainWindow = new BrowserWindow({
@@ -238,10 +252,12 @@ const registerWindowIpc = () => {
     return snapped;
   });
   ipcMain.handle("window:collapse", () => {
-    if (expanded) mainWindow?.webContents.send("window:start-collapse");
+    requestCollapse();
     return true;
   });
   ipcMain.handle("window:finish-collapse", () => {
+    if (collapseTimer) clearTimeout(collapseTimer);
+    collapseTimer = null;
     expanded = false;
     resizeToCollapsed();
     return false;
@@ -309,7 +325,7 @@ app.whenReady().then(() => {
   });
   createWindow();
   globalShortcut.register("CommandOrControl+Alt+Space", () => {
-    if (expanded) mainWindow?.webContents.send("window:start-collapse");
+    if (expanded) requestCollapse();
     else {
       expanded = true;
       resizeToExpanded();
