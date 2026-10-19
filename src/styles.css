@@ -1,0 +1,35 @@
+:root { font-family: "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif; color: #fff; background: transparent; font-synthesis: none; }
+* { box-sizing: border-box; }
+body { margin: 0; overflow: hidden; background: transparent; }
+button { border: 0; color: inherit; font: inherit; cursor: pointer; }
+.islet { width: 1000px; min-height: 64px; margin: 0 auto; padding: 0 28px 28px; background: #000; border-radius: 0 0 36px 36px; box-shadow: 0 18px 45px rgba(0,0,0,.5), inset 0 -1px rgba(255,255,255,.08); overflow: hidden; }
+.islet.is-collapsed { width: 190px; min-height: 36px; height: 36px; padding: 0; border-radius: 0 0 22px 22px; }
+.islet.is-collapsed .topbar { justify-content: center; }
+.islet.is-collapsed nav, .islet.is-collapsed .settings { display: none; }
+.topbar { height: 64px; display: flex; align-items: center; justify-content: space-between; }
+nav { display: flex; gap: 4px; }
+.tab { display: flex; align-items: center; gap: 9px; padding: 9px 15px; background: transparent; border-radius: 22px; color: #f5f5f7; font-size: 21px; font-weight: 650; }
+.tab.active { background: #252527; }
+.icon { display: inline-grid; place-items: center; width: 25px; font-size: 23px; }
+.settings { background: transparent; color: #d7d7da; font-size: 25px; padding: 8px; }
+.nook-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.media-section, .calendar-section { min-height: 245px; }
+.media-section { padding: 8px 25px 0 64px; border-right: 1px solid #222; }
+.media-main { display: flex; gap: 20px; align-items: center; }
+.album-wrap { position: relative; flex: 0 0 auto; }
+.album-art { width: 112px; height: 112px; display: block; object-fit: cover; border-radius: 22px; filter: grayscale(1); }
+.source-badge { position: absolute; right: -10px; bottom: -8px; width: 35px; height: 35px; border-radius: 10px; display: grid; place-items: center; background: #fa244f; font-size: 22px; box-shadow: 0 4px 10px #000; }
+.track-copy h1, .track-copy h2, .track-copy p { margin: 0; }
+.track-copy h1 { font-size: 25px; line-height: 1.15; }
+.track-copy h2 { margin-top: 6px; color: #aaa; font-size: 18px; }
+.track-copy p { margin-top: 2px; color: #777; font-size: 17px; }
+.transport { display: flex; gap: 22px; margin-top: 23px; align-items: center; }
+.transport button { background: transparent; color: #ddd; font-size: 18px; padding: 0; }
+.transport .play { font-size: 23px; }
+.progress-row { display: flex; align-items: center; gap: 9px; margin-top: 22px; color: #68686c; font-size: 11px; }
+.progress { height: 3px; flex: 1; border-radius: 3px; background: #363638; overflow: hidden; }.progress div { width: 19%; height: 100%; background: #a9a9ad; }
+.calendar-section { padding: 16px 20px 0 0; }
+.calendar-head { display: flex; align-items: center; gap: 22px; }.calendar-head strong { font-size: 42px; line-height: 1; }
+.days { display: flex; flex: 1; justify-content: space-between; }.day { width: 36px; text-align: center; color: #707074; position: relative; }.day span { font-size: 14px; font-weight: 700; }.day b { display: block; margin-top: 4px; color: #77777b; font-size: 20px; }.day.today b { color: #1683ff; font-size: 29px; }.day i { display: block; width: 4px; height: 4px; margin: 5px auto 0; border-radius: 50%; background: #6c6c70; }
+.empty-calendar { height: 170px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #77777b; font-size: 21px; }.calendar-icon { font-size: 22px; color: #777; }
+.task-row { display: flex; gap: 12px; overflow: hidden; padding: 14px 0 8px; }.task-card { flex: 0 0 224px; height: 170px; padding: 13px; border-radius: 16px; background: #1c1c1e; }.task-top { display: flex; justify-content: space-between; }.task-thumb { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 7px; background: #3b3b3f; color: #d7d7da; }.task-top button { width: 25px; height: 25px; margin-left: 5px; border-radius: 50%; background: #303033; color: #a8a8ad; }.task-card h2 { margin: 17px 0 4px; font-size: 17px; }.task-card p { margin: 0; color: #77777c; font-size: 12px; }.task-card a { color: #1384ff; text-decoration: none; }.capture { flex: 0 0 74px; align-self: center; width: 74px; height: 74px; border-radius: 50%; background: #242426; color: #ddd; font-size: 40px; }.capture span { display: block; transform: rotate(-45deg); }
