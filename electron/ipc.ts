@@ -59,6 +59,22 @@ export type Settings = {
   monitor: "active" | string;
   accentColor: string;
   animations: boolean;
+  expandOnHover: boolean;
+  notchMode: boolean;
+  snapToEdge: boolean;
+  iconSize: number;
+  closeOnBlur: boolean;
+  positions: Record<string, WindowPosition>;
+};
+
+export type WindowPosition = {
+  x: number;
+  y: number;
+};
+
+export type WindowDragPoint = {
+  screenX: number;
+  screenY: number;
 };
 
 export type CreateTaskInput = {
@@ -78,6 +94,15 @@ export type CreateCalendarEventInput = Omit<CalendarEvent, "id" | "source">;
 export type IsletApi = {
   window: {
     setExpanded(expanded: boolean): Promise<void>;
+    getState(): Promise<{ expanded: boolean }>;
+    beginDrag(point: WindowDragPoint): Promise<void>;
+    moveDrag(point: WindowDragPoint): Promise<void>;
+    endDrag(): Promise<WindowPosition>;
+    collapse(): Promise<void>;
+    finishCollapse(): Promise<void>;
+    onExpanded(listener: () => void): () => void;
+    onStartCollapse(listener: () => void): () => void;
+    onBlurred(listener: () => void): () => void;
     setActiveTab(tab: Tab): Promise<void>;
     getSettings(): Promise<Settings>;
   };

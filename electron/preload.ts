@@ -1,9 +1,30 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { IsletApi, MediaState, Tab } from "./ipc.js";
+import type { IsletApi, MediaState, Tab, WindowDragPoint } from "./ipc.js";
 
 const api: IsletApi = {
   window: {
     setExpanded: (expanded) => ipcRenderer.invoke("window:set-expanded", expanded),
+    getState: () => ipcRenderer.invoke("window:get-state"),
+    beginDrag: (point: WindowDragPoint) => ipcRenderer.invoke("window:begin-drag", point),
+    moveDrag: (point: WindowDragPoint) => ipcRenderer.invoke("window:move-drag", point),
+    endDrag: () => ipcRenderer.invoke("window:end-drag"),
+    collapse: () => ipcRenderer.invoke("window:collapse"),
+    finishCollapse: () => ipcRenderer.invoke("window:finish-collapse"),
+    onExpanded: (listener) => {
+      const handler = () => listener();
+      ipcRenderer.on("window:expanded", handler);
+      return () => ipcRenderer.removeListener("window:expanded", handler);
+    },
+    onStartCollapse: (listener) => {
+      const handler = () => listener();
+      ipcRenderer.on("window:start-collapse", handler);
+      return () => ipcRenderer.removeListener("window:start-collapse", handler);
+    },
+    onBlurred: (listener) => {
+      const handler = () => listener();
+      ipcRenderer.on("window:blurred", handler);
+      return () => ipcRenderer.removeListener("window:blurred", handler);
+    },
     setActiveTab: (tab: Tab) => ipcRenderer.invoke("window:set-tab", tab),
     getSettings: () => ipcRenderer.invoke("settings:get")
   },
