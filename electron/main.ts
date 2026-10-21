@@ -1,5 +1,6 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, net, nativeImage, protocol, screen, Tray } from "electron";
+import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, Tray } from "electron";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -13,24 +14,73 @@ import type {
   WindowPosition
 } from "./ipc.js";
 
+import { MediaService } from "./media-service.js";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 protocol.registerSchemesAsPrivileged([
-  { scheme: "islet-art", privileges: { secure: true, standard: true, supportFetchAPI: true, stream: true } }
+  {
+    scheme: "islet-art",
+    privileges: {
+      secure: true,
+      standard: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+      bypassCSP: true
+    }
+  }
 ]);
 
-const COLLAPSED_SIZE = 64;
-const EXPANDED_SIZE = { width: 680, height: 300 };
-const EDGE_MARGIN = 12;
+// Window element sizing - Tight 376px width (hugs notch exactly) and flush to top
+const WIN_WIDTH = 376;
+const COLLAPSED_WIN_HEIGHT = 44;
+const EXPANDED_WIN_HEIGHT = 125;
+
 const SETTINGS_FILE = "settings.json";
 
+const resolveLogPath = (): string => {
+  const appData =
+    process.env.APPDATA ||
+    (process.platform === "win32" ? path.join(os.homedir(), "AppData", "Roaming") : os.homedir());
+  const isletDir = path.join(appData, "islet");
+  try {
+    fs.mkdirSync(isletDir, { recursive: true });
+  } catch {
+    // ignore
+  }
+  return path.join(isletDir, "islet.log");
+};
+
+const logFile: string = resolveLogPath();
+
+export const log = (message: string, error?: unknown) => {
+  const detail = error instanceof Error ? `${error.message}\n${error.stack ?? ""}` : error ? String(error) : "";
+  const line = `[${new Date().toISOString()}] ${message}${detail ? `\n${detail}` : ""}\n`;
+  console.log(line.trimEnd());
+  try {
+    fs.appendFileSync(logFile, line, "utf8");
+  } catch (writeError) {
+    console.error("Unable to write Islet diagnostic log:", writeError);
+  }
+};
+
+const mediaService = new MediaService(log);
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let expanded = false;
 let hidden = false;
 let dragOffset = { x: 0, y: 0 };
 let collapseTimer: NodeJS.Timeout | null = null;
+let snapAnimationTimer: NodeJS.Timeout | null = null;
+let currentAnchor: WindowPosition | null = null;
 let settings: Settings;
 let registeredHotkey: string | null = null;
+let rendererReady = false;
+
+const singleInstance = app.requestSingleInstanceLock();
+if (!singleInstance) {
+  app.quit();
+}
 
 const defaultSettings: Settings = {
   hotkey: "Ctrl+Alt+Space",
@@ -38,7 +88,7 @@ const defaultSettings: Settings = {
   accentColor: "#0a84ff",
   animations: true,
   expandOnHover: false,
-  notchMode: false,
+  notchMode: true,
   snapToEdge: true,
   iconSize: 64,
   closeOnBlur: true,
@@ -46,21 +96,10 @@ const defaultSettings: Settings = {
   positions: {}
 };
 
-const placeholderMedia: MediaState = {
-  status: "playing",
-  title: "Cocoon",
-  album: "Vespertine",
-  artist: "Björk",
-  source: "apple-music",
-  artworkUrl: "islet-art://placeholder.svg",
-  positionMs: 48_000,
-  durationMs: 262_000
-};
-
 const placeholderTasks: Task[] = [
-  { id: 1, title: "Choose icon", dueAt: "16:00", link: "link", completed: false },
-  { id: 2, title: "Check designs", dueAt: "17:30", link: "link", completed: false },
-  { id: 3, title: "Inspect figma file", dueAt: "18:00", link: "link", completed: false }
+  { id: 1, title: "Refine Dynamic Island geometry", dueAt: "16:00", link: "linear.app", completed: false },
+  { id: 2, title: "Verify artwork & layout", dueAt: "17:30", link: "figma.com", completed: false },
+  { id: 3, title: "Test native window bounds", dueAt: "18:00", link: "github.com", completed: false }
 ];
 
 const settingsPath = () => path.join(app.getPath("userData"), SETTINGS_FILE);
@@ -71,7 +110,7 @@ const loadSettings = () => {
     return { ...defaultSettings, ...JSON.parse(raw) } as Settings;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      console.error("Unable to load Islet settings:", error);
+      log("Unable to load Islet settings:", error);
     }
     return { ...defaultSettings };
   }
@@ -82,7 +121,7 @@ const saveSettings = () => {
     fs.mkdirSync(app.getPath("userData"), { recursive: true });
     fs.writeFileSync(settingsPath(), JSON.stringify(settings, null, 2), "utf8");
   } catch (error) {
-    console.error("Unable to save Islet settings:", error);
+    log("Unable to save Islet settings:", error);
   }
 };
 
@@ -90,195 +129,258 @@ const getStartupStatus = () => app.getLoginItemSettings().openAtLogin;
 
 const applyStartupSetting = (enabled: boolean) => {
   settings.startWithWindows = enabled;
-  app.setLoginItemSettings({
-    openAtLogin: enabled,
-    path: app.isPackaged ? process.execPath : process.execPath,
-    args: app.isPackaged ? ["--startup"] : [app.getAppPath(), "--startup"],
-    name: "Islet"
-  });
+  if (app.isPackaged) {
+    app.setLoginItemSettings({
+      openAtLogin: enabled,
+      path: process.execPath,
+      args: ["--startup"],
+      name: "Islet"
+    });
+  }
   saveSettings();
   updateTrayMenu();
 };
 
-const showIslet = () => {
-  if (!mainWindow) return;
-  hidden = false;
-  expanded = false;
-  mainWindow.showInactive();
-  mainWindow.setAlwaysOnTop(true, "screen-saver");
-  mainWindow.webContents.send("window:shown");
+const reconcileStartupSetting = () => {
+  if (!app.isPackaged) return;
+  const actual = getStartupStatus();
+  if (actual !== settings.startWithWindows) applyStartupSetting(settings.startWithWindows);
 };
 
-const hideIslet = () => {
-  if (!mainWindow) return;
-  hidden = true;
-  expanded = false;
+const cancelCollapse = () => {
   if (collapseTimer) clearTimeout(collapseTimer);
   collapseTimer = null;
-  mainWindow.hide();
-  mainWindow.webContents.send("window:hidden");
-  updateTrayMenu();
 };
 
-const toggleVisibility = () => {
-  if (hidden || !mainWindow?.isVisible()) showIslet();
-  else hideIslet();
+// Monitor & Geometry Resolution
+const getActiveDisplay = (): Electron.Display => {
+  const cursorPoint = screen.getCursorScreenPoint();
+  return screen.getDisplayNearestPoint(cursorPoint) ?? screen.getPrimaryDisplay();
 };
 
-const registerGlobalHotkey = () => {
-  if (registeredHotkey) {
-    globalShortcut.unregister(registeredHotkey);
-    registeredHotkey = null;
-  }
-  const requested = settings.hotkey || defaultSettings.hotkey;
-  if (globalShortcut.register(requested, toggleVisibility)) {
-    registeredHotkey = requested;
-    return true;
-  }
-  if (requested !== defaultSettings.hotkey && globalShortcut.register(defaultSettings.hotkey, toggleVisibility)) {
-    registeredHotkey = defaultSettings.hotkey;
-    settings.hotkey = defaultSettings.hotkey;
-    saveSettings();
-    return false;
-  }
-  console.error(`Unable to register Islet hotkey: ${requested}`);
-  return false;
-};
-
-const trayIcon = () => nativeImage.createFromDataURL(
-  `data:image/svg+xml;charset=utf-8,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><circle cx='16' cy='16' r='14' fill='black' stroke='white'/><circle cx='16' cy='16' r='4' fill='white'/></svg>")}`
-);
-
-const updateTrayMenu = () => {
-  if (!tray) return;
-  const visible = !hidden && Boolean(mainWindow?.isVisible());
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: "Show Islet", enabled: !visible, click: showIslet },
-    { label: "Hide Islet", enabled: visible, click: hideIslet },
-    { type: "separator" },
-    {
-      label: "Start with Windows",
-      type: "checkbox",
-      checked: getStartupStatus(),
-      click: (item) => applyStartupSetting(item.checked)
-    },
-    { label: "Settings", click: () => { showIslet(); mainWindow?.webContents.send("settings:open"); } },
-    { label: "Reset icon position", click: () => { const position = defaultPosition(); mainWindow?.setBounds({ ...position, width: COLLAPSED_SIZE, height: COLLAPSED_SIZE }); persistPosition(position); showIslet(); } },
-    { type: "separator" },
-    { label: "Quit Islet", click: () => app.quit() }
-  ]));
-};
-
-const createTray = () => {
-  tray = new Tray(trayIcon());
-  tray.setToolTip("Islet");
-  tray.on("click", toggleVisibility);
-  updateTrayMenu();
-};
-
-const displayForPosition = (position: WindowPosition) =>
-  screen.getAllDisplays().find((display) => {
+const displayForPosition = (position: WindowPosition): Electron.Display => {
+  const allDisplays = screen.getAllDisplays();
+  const found = allDisplays.find((display) => {
     const area = display.workArea;
-    return position.x >= area.x && position.x <= area.x + area.width && position.y >= area.y && position.y <= area.y + area.height;
-  }) ?? screen.getPrimaryDisplay();
+    return (
+      position.x >= area.x - 40 &&
+      position.x <= area.x + area.width + 40 &&
+      position.y >= area.y - 40 &&
+      position.y <= area.y + area.height + 40
+    );
+  });
+  return found ?? getActiveDisplay();
+};
 
-const clampPosition = (position: WindowPosition, width: number, height: number, display = displayForPosition(position)) => {
+const clampWindowPosition = (
+  position: WindowPosition,
+  winWidth: number = WIN_WIDTH,
+  _winHeight: number = COLLAPSED_WIN_HEIGHT,
+  display: Electron.Display = displayForPosition(position)
+): WindowPosition => {
+  const area = display.workArea;
+  const rawX = Number.isFinite(position?.x) ? position.x : area.x;
+  return {
+    x: ((Math.round(Math.max(area.x, Math.min(rawX, area.x + area.width - winWidth))) || 0) | 0),
+    y: ((Math.round(area.y) || 0) | 0)
+  };
+};
+
+const defaultTopCenterPosition = (display: Electron.Display = getActiveDisplay()): WindowPosition => {
   const area = display.workArea;
   return {
-    x: Math.max(area.x, Math.min(position.x, area.x + area.width - width)),
-    y: Math.max(area.y, Math.min(position.y, area.y + area.height - height))
+    x: ((Math.round(area.x + (area.width - WIN_WIDTH) / 2) || 0) | 0),
+    y: ((Math.round(area.y) || 0) | 0)
   };
 };
 
 const positionKey = (display: Electron.Display) => String(display.id);
 
-const defaultPosition = (): WindowPosition => {
-  const display = screen.getPrimaryDisplay();
-  const saved = settings.positions[positionKey(display)];
-  return saved ? clampPosition(saved, COLLAPSED_SIZE, COLLAPSED_SIZE, display) : {
-    x: Math.round(display.workArea.x + (display.workArea.width - COLLAPSED_SIZE) / 2),
-    y: display.workArea.y + EDGE_MARGIN
-  };
-};
-
 const persistPosition = (position: WindowPosition) => {
   const display = displayForPosition(position);
-  settings.positions[positionKey(display)] = clampPosition(position, COLLAPSED_SIZE, COLLAPSED_SIZE, display);
+  settings.positions[positionKey(display)] = clampWindowPosition(position, WIN_WIDTH, COLLAPSED_WIN_HEIGHT, display);
   saveSettings();
 };
 
 const snapPosition = (position: WindowPosition): WindowPosition => {
   const display = displayForPosition(position);
   const area = display.workArea;
-  const maxX = area.x + area.width - COLLAPSED_SIZE;
-  const maxY = area.y + area.height - COLLAPSED_SIZE;
-  const distances = [
-    { edge: "left", distance: Math.abs(position.x - (area.x + EDGE_MARGIN)), value: { x: area.x + EDGE_MARGIN, y: position.y } },
-    { edge: "right", distance: Math.abs(position.x - (maxX - EDGE_MARGIN)), value: { x: maxX - EDGE_MARGIN, y: position.y } },
-    { edge: "top", distance: Math.abs(position.y - (area.y + EDGE_MARGIN)), value: { x: position.x, y: area.y + EDGE_MARGIN } },
-    { edge: "bottom", distance: Math.abs(position.y - (maxY - EDGE_MARGIN)), value: { x: position.x, y: maxY - EDGE_MARGIN } }
-  ];
-  const nearest = distances.sort((a, b) => a.distance - b.distance)[0];
-  return clampPosition(nearest.value, COLLAPSED_SIZE, COLLAPSED_SIZE, display);
+  const rawX = Number.isFinite(position?.x) ? position.x : area.x;
+  const clampedX = Math.round(Math.max(area.x, Math.min(rawX, area.x + area.width - WIN_WIDTH)));
+  const topCenterX = Math.round(area.x + (area.width - WIN_WIDTH) / 2);
+
+  // Snap to center if dragged within 40px of center; otherwise respect user position on left or right!
+  const finalX = Math.abs(clampedX - topCenterX) < 40 ? topCenterX : clampedX;
+  return {
+    x: ((Math.round(finalX) || 0) | 0),
+    y: ((Math.round(area.y) || 0) | 0)
+  };
 };
 
 const animateSnap = (from: WindowPosition, to: WindowPosition) => {
-  if (!mainWindow || !settings.snapToEdge) {
-    persistPosition(to);
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (snapAnimationTimer) {
+    clearTimeout(snapAnimationTimer);
+    snapAnimationTimer = null;
+  }
+
+  const startX = Number.isFinite(from?.x) ? Math.round(from.x) : (to?.x ?? 0);
+  const startY = Number.isFinite(from?.y) ? Math.round(from.y) : (to?.y ?? 0);
+  const targetX = Number.isFinite(to?.x) ? Math.round(to.x) : startX;
+  const targetY = Number.isFinite(to?.y) ? Math.round(to.y) : startY;
+
+  const safeTargetX = ((Math.round(targetX) || 0) | 0);
+  const safeTargetY = ((Math.round(targetY) || 0) | 0);
+
+  if (!settings.snapToEdge || (startX === targetX && startY === targetY)) {
+    try {
+      mainWindow.setPosition(safeTargetX, safeTargetY);
+    } catch (err) {
+      log("[animateSnap] setPosition error:", err);
+    }
+    currentAnchor = { x: safeTargetX, y: safeTargetY };
+    persistPosition(currentAnchor);
     return;
   }
+
   const startedAt = Date.now();
-  const duration = 200;
+  const duration = 180;
   const tick = () => {
-    if (!mainWindow) return;
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      snapAnimationTimer = null;
+      return;
+    }
     const progress = Math.min(1, (Date.now() - startedAt) / duration);
     const eased = 1 - Math.pow(1 - progress, 3);
-    mainWindow.setPosition(
-      Math.round(from.x + (to.x - from.x) * eased),
-      Math.round(from.y + (to.y - from.y) * eased)
-    );
+    const curX = ((Math.round(startX + (targetX - startX) * eased) || 0) | 0);
+    const curY = ((Math.round(startY + (targetY - startY) * eased) || 0) | 0);
+
+    try {
+      mainWindow.setPosition(curX, curY);
+    } catch (err) {
+      log("[animateSnap:tick] setPosition error:", err);
+    }
+
     if (progress < 1) {
-      setTimeout(tick, 16);
+      snapAnimationTimer = setTimeout(tick, 16);
     } else {
-      persistPosition(to);
+      snapAnimationTimer = null;
+      currentAnchor = { x: safeTargetX, y: safeTargetY };
+      persistPosition(currentAnchor);
     }
   };
   tick();
 };
 
-const expandedBoundsForAnchor = (anchor: WindowPosition) => {
-  const display = displayForPosition(anchor);
-  const area = display.workArea;
-  const centeredX = anchor.x + COLLAPSED_SIZE / 2 - EXPANDED_SIZE.width / 2;
-  const belowY = anchor.y;
-  const aboveY = anchor.y + COLLAPSED_SIZE - EXPANDED_SIZE.height;
-  const y = belowY + EXPANDED_SIZE.height <= area.y + area.height ? belowY : aboveY;
-  return clampPosition({ x: centeredX, y }, EXPANDED_SIZE.width, EXPANDED_SIZE.height, display);
-};
-
-const resizeToExpanded = () => {
+const resizeToExpanded = (customHeight?: number) => {
   if (!mainWindow) return;
-  const [x, y] = mainWindow.getPosition();
-  const bounds = expandedBoundsForAnchor({ x, y });
-  mainWindow.setBounds({ ...bounds, ...EXPANDED_SIZE });
+  const targetH = customHeight && customHeight > EXPANDED_WIN_HEIGHT ? customHeight + 10 : EXPANDED_WIN_HEIGHT;
+  const display = currentAnchor ? displayForPosition(currentAnchor) : getActiveDisplay();
+  const anchor = currentAnchor ?? defaultTopCenterPosition(display);
+  const clamped = clampWindowPosition(anchor, WIN_WIDTH, targetH, display);
+  currentAnchor = clamped;
+  mainWindow.setBounds({
+    x: clamped.x,
+    y: clamped.y,
+    width: WIN_WIDTH,
+    height: targetH
+  });
   mainWindow.showInactive();
 };
 
 const resizeToCollapsed = () => {
   if (!mainWindow) return;
-  const [x, y] = mainWindow.getPosition();
-  const anchor = {
-    x: x + Math.round((EXPANDED_SIZE.width - COLLAPSED_SIZE) / 2),
-    y: y
-  };
-  const position = clampPosition(anchor, COLLAPSED_SIZE, COLLAPSED_SIZE);
-  mainWindow.setBounds({ ...position, width: COLLAPSED_SIZE, height: COLLAPSED_SIZE });
-  persistPosition(position);
+  const display = currentAnchor ? displayForPosition(currentAnchor) : getActiveDisplay();
+  const anchor = currentAnchor ?? defaultTopCenterPosition(display);
+  const clamped = clampWindowPosition(anchor, WIN_WIDTH, COLLAPSED_WIN_HEIGHT, display);
+  currentAnchor = clamped;
+  mainWindow.setBounds({
+    x: clamped.x,
+    y: clamped.y,
+    width: WIN_WIDTH,
+    height: COLLAPSED_WIN_HEIGHT
+  });
+  persistPosition(clamped);
   mainWindow.showInactive();
+};
+
+export const showIslet = (reason: string = "manual") => {
+  if (!mainWindow) return;
+  const beforeVisible = mainWindow.isVisible();
+  const beforeBounds = mainWindow.getBounds();
+  log(
+    `[showIslet] START reason="${reason}" | before: isVisible=${beforeVisible}, bounds=${JSON.stringify(beforeBounds)}`
+  );
+
+  cancelCollapse();
+  hidden = false;
+  expanded = false;
+  const display = getActiveDisplay();
+  const pos = defaultTopCenterPosition(display);
+  currentAnchor = pos;
+  mainWindow.setBounds({ ...pos, width: WIN_WIDTH, height: COLLAPSED_WIN_HEIGHT });
+  persistPosition(pos);
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.showInactive();
+  mainWindow.setAlwaysOnTop(true, "floating");
+  mainWindow.moveTop();
+
+  if (rendererReady) {
+    mainWindow.webContents.send("window:shown");
+  }
+  updateTrayMenu();
+
+  const afterVisible = mainWindow.isVisible();
+  const afterBounds = mainWindow.getBounds();
+  log(
+    `[showIslet] END reason="${reason}" | after: isVisible=${afterVisible}, bounds=${JSON.stringify(afterBounds)}, isMinimized=${mainWindow.isMinimized()}`
+  );
+};
+
+export const hideIslet = (reason: string = "manual") => {
+  if (!mainWindow) return;
+  const beforeVisible = mainWindow.isVisible();
+  const beforeBounds = mainWindow.getBounds();
+  log(
+    `[hideIslet] START reason="${reason}" | before: isVisible=${beforeVisible}, bounds=${JSON.stringify(beforeBounds)}`
+  );
+
+  hidden = true;
+  expanded = false;
+  cancelCollapse();
+  resizeToCollapsed();
+  mainWindow.hide();
+
+  if (rendererReady) {
+    mainWindow.webContents.send("window:hidden");
+  }
+  updateTrayMenu();
+
+  const afterVisible = mainWindow.isVisible();
+  const afterBounds = mainWindow.getBounds();
+  log(
+    `[hideIslet] END reason="${reason}" | after: isVisible=${afterVisible}, bounds=${JSON.stringify(afterBounds)}`
+  );
+};
+
+const handleGlobalHotkey = () => {
+  log(
+    `[hotkey] Global hotkey pressed. hidden=${hidden}, isVisible=${mainWindow?.isVisible() ?? false}, expanded=${expanded}`
+  );
+  if (hidden || !mainWindow?.isVisible()) {
+    showIslet("hotkey-toggle-show");
+  } else if (expanded) {
+    requestCollapse();
+  } else {
+    hideIslet("hotkey-toggle-hide");
+  }
 };
 
 const requestCollapse = () => {
   if (!expanded || !mainWindow) return;
+  log("[main] Requesting collapse from expanded mode");
   mainWindow.webContents.send("window:start-collapse");
   if (collapseTimer) clearTimeout(collapseTimer);
   collapseTimer = setTimeout(() => {
@@ -287,15 +389,100 @@ const requestCollapse = () => {
       resizeToCollapsed();
     }
     collapseTimer = null;
-  }, 320);
+  }, 450);
+};
+
+const registerGlobalHotkey = () => {
+  if (registeredHotkey) {
+    globalShortcut.unregister(registeredHotkey);
+    registeredHotkey = null;
+  }
+  const requested = settings.hotkey || defaultSettings.hotkey;
+  if (globalShortcut.register(requested, handleGlobalHotkey)) {
+    registeredHotkey = requested;
+    log(`[hotkey] Successfully registered hotkey: ${requested}`);
+    return true;
+  }
+  if (requested !== defaultSettings.hotkey && globalShortcut.register(defaultSettings.hotkey, handleGlobalHotkey)) {
+    registeredHotkey = defaultSettings.hotkey;
+    settings.hotkey = defaultSettings.hotkey;
+    saveSettings();
+    log(`[hotkey] Fell back to default hotkey: ${defaultSettings.hotkey}`);
+    return false;
+  }
+  log(`[hotkey ERROR] Unable to register Islet hotkey: ${requested}`);
+  return false;
+};
+
+const trayIcon = () =>
+  nativeImage.createFromDataURL(
+    `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+      "<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><rect x='5' y='11' width='22' height='10' rx='5' fill='#000000' stroke='#ffffff' stroke-width='1.5'/><circle cx='10' cy='16' r='2' fill='#ffffff'/></svg>"
+    )}`
+  );
+
+const updateTrayMenu = () => {
+  if (!tray) return;
+  const visible = !hidden && Boolean(mainWindow?.isVisible());
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: "Show Islet", enabled: !visible, click: () => showIslet("tray-menu-show") },
+      { label: "Hide Islet", enabled: visible, click: () => hideIslet("tray-menu-hide") },
+      { type: "separator" },
+      {
+        label: "Start with Windows",
+        type: "checkbox",
+        checked: getStartupStatus(),
+        click: (item) => applyStartupSetting(item.checked)
+      },
+      {
+        label: "Settings",
+        click: () => {
+          showIslet("tray-settings");
+          mainWindow?.webContents.send("settings:open");
+        }
+      },
+      {
+        label: "Reset to top-center",
+        click: () => {
+          const display = getActiveDisplay();
+          const position = defaultTopCenterPosition(display);
+          currentAnchor = position;
+          mainWindow?.setBounds({ ...position, width: WIN_WIDTH, height: COLLAPSED_WIN_HEIGHT });
+          persistPosition(position);
+          showIslet("tray-reset");
+        }
+      },
+      { type: "separator" },
+      { label: "Quit Islet", click: () => app.quit() }
+    ])
+  );
+};
+
+const createTray = () => {
+  tray = new Tray(trayIcon());
+  tray.setToolTip("Islet — Dynamic Island for Windows");
+  tray.on("click", handleGlobalHotkey);
+  updateTrayMenu();
 };
 
 const createWindow = () => {
-  const position = defaultPosition();
+  const display = getActiveDisplay();
+  const position = defaultTopCenterPosition(display);
+  currentAnchor = position;
+
+  log(
+    `[createWindow] Creating BrowserWindow: initial bounds=${JSON.stringify({
+      ...position,
+      width: WIN_WIDTH,
+      height: COLLAPSED_WIN_HEIGHT
+    })}`
+  );
+
   mainWindow = new BrowserWindow({
     ...position,
-    width: COLLAPSED_SIZE,
-    height: COLLAPSED_SIZE,
+    width: WIN_WIDTH,
+    height: COLLAPSED_WIN_HEIGHT,
     transparent: true,
     frame: false,
     resizable: false,
@@ -303,65 +490,191 @@ const createWindow = () => {
     skipTaskbar: true,
     alwaysOnTop: true,
     hasShadow: false,
+    show: false,
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       backgroundThrottling: false
     }
   });
-  mainWindow.setAlwaysOnTop(true, "screen-saver");
+
+  mainWindow.setAlwaysOnTop(true, "floating");
+  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
   mainWindow.on("blur", () => {
-    if (!hidden && settings.closeOnBlur && expanded) mainWindow?.webContents.send("window:blurred");
+    if (!hidden && settings.closeOnBlur && expanded) {
+      mainWindow?.webContents.send("window:blurred");
+    }
   });
+
   mainWindow.on("show", updateTrayMenu);
   mainWindow.on("hide", updateTrayMenu);
-  mainWindow.on("closed", () => { mainWindow = null; });
-  if (process.env.VITE_DEV_SERVER_URL) void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
-  else void mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
-  mainWindow.once("ready-to-show", () => mainWindow?.showInactive());
+  mainWindow.on("closed", () => {
+    log("[main] Window closed event");
+    mainWindow = null;
+  });
+
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    log(
+      `[Renderer ERROR] did-fail-load (code=${errorCode}, isMainFrame=${isMainFrame}): ${errorDescription} [${validatedURL}]`
+    );
+  });
+
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    rendererReady = false;
+    log(`[Renderer CRASH] process exited: reason="${details.reason}", exitCode=${details.exitCode}`);
+    mainWindow?.webContents.send("renderer:error", `Renderer exited: ${details.reason}`);
+    mainWindow?.hide();
+  });
+
+  mainWindow.webContents.on("unresponsive", () => log("[Renderer WARNING] became unresponsive"));
+  mainWindow.webContents.on("responsive", () => log("[Renderer INFO] became responsive"));
+
+  mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    log(`[Renderer Console lvl=${level}] ${sourceId}:${line} -> ${message}`);
+  });
+
+  const loadPromise = process.env.VITE_DEV_SERVER_URL
+    ? mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
+    : mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+
+  void loadPromise.catch((error) => {
+    rendererReady = false;
+    log("[Renderer ERROR] load URL/file rejected:", error);
+    mainWindow?.hide();
+  });
+
+  mainWindow.webContents.once("did-finish-load", () => {
+    rendererReady = true;
+    log("[main] Renderer did-finish-load complete.");
+    const current = mediaService.getCurrentMedia();
+    log(`[main] Media state on did-finish-load: ${current ? `"${current.title}" (${current.status})` : "null"}`);
+    if (current) {
+      mainWindow?.webContents.send("media:changed", current);
+    }
+    if (!hidden) {
+      showIslet("startup-ready");
+    }
+  });
 };
 
 const registerWindowIpc = () => {
-  ipcMain.handle("window:set-expanded", (_event, value: boolean) => {
-    if (value === expanded) return expanded;
-    expanded = value;
-    if (expanded) resizeToExpanded();
-    else resizeToCollapsed();
+  ipcMain.handle("window:set-expanded", (_event, value: boolean, customHeight?: number) => {
+    if (!rendererReady || hidden) return false;
+    cancelCollapse();
+    if (value) {
+      expanded = true;
+      log(`[IPC:window:set-expanded] Setting expanded: true, height: ${customHeight}`);
+      mediaService.setInteractive(true);
+      resizeToExpanded(customHeight);
+      mainWindow?.webContents.send("window:expanded");
+    } else {
+      if (expanded) {
+        requestCollapse();
+      }
+    }
     return expanded;
   });
+
   ipcMain.handle("window:get-state", () => ({ expanded }));
+
   ipcMain.handle("window:begin-drag", (_event, point: WindowDragPoint) => {
-    if (!mainWindow) return;
-    const [x, y] = mainWindow.getPosition();
-    dragOffset = { x: point.screenX - x, y: point.screenY - y };
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (snapAnimationTimer) {
+      clearTimeout(snapAnimationTimer);
+      snapAnimationTimer = null;
+    }
+    const [x] = mainWindow.getPosition();
+    const sx = Number.isFinite(point?.screenX) ? point.screenX : x;
+    dragOffset = { x: sx - x, y: 0 };
   });
+
   ipcMain.handle("window:move-drag", (_event, point: WindowDragPoint) => {
-    if (!mainWindow) return;
-    mainWindow.setPosition(Math.round(point.screenX - dragOffset.x), Math.round(point.screenY - dragOffset.y));
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (!Number.isFinite(point?.screenX)) return;
+    const display = getActiveDisplay();
+    const area = display.workArea;
+    const bounds = mainWindow.getBounds();
+    const rawX = Math.round(point.screenX - (dragOffset?.x || 0));
+    const targetX = ((Math.max(area.x, Math.min(rawX, area.x + area.width - bounds.width))) || 0) | 0;
+    const targetY = (Math.round(area.y) || 0) | 0;
+    try {
+      mainWindow.setPosition(targetX, targetY);
+    } catch (err) {
+      log("[window:move-drag] setPosition error:", err);
+    }
   });
+
   ipcMain.handle("window:end-drag", () => {
-    if (!mainWindow) return { x: 0, y: 0 };
-    const [x, y] = mainWindow.getPosition();
-    const snapped = snapPosition({ x, y });
-    animateSnap({ x, y }, snapped);
+    if (!mainWindow || mainWindow.isDestroyed()) return { x: 0, y: 0 };
+    const pos = mainWindow.getPosition();
+    const curX = Number.isFinite(pos?.[0]) ? (pos[0] | 0) : ((currentAnchor?.x ?? 0) | 0);
+    const curY = Number.isFinite(pos?.[1]) ? (pos[1] | 0) : ((currentAnchor?.y ?? 0) | 0);
+    const snapped = snapPosition({ x: curX, y: curY });
+    currentAnchor = snapped;
+    animateSnap({ x: curX, y: curY }, snapped);
     return snapped;
   });
+
   ipcMain.handle("window:collapse", () => {
+    mediaService.setInteractive(false);
     requestCollapse();
     return true;
   });
+
   ipcMain.handle("window:finish-collapse", () => {
-    if (collapseTimer) clearTimeout(collapseTimer);
-    collapseTimer = null;
+    cancelCollapse();
     expanded = false;
+    mediaService.setInteractive(false);
     resizeToCollapsed();
     return false;
   });
+
+  ipcMain.on("window:set-ignore-mouse-events", (_event, ignore: boolean, options?: { forward: boolean }) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    try {
+      mainWindow.setIgnoreMouseEvents(ignore, options);
+    } catch (err) {
+      log("[setIgnoreMouseEvents] error:", err);
+    }
+  });
+};
+
+const getRealCurrentWeek = (): CalendarWeek => {
+  const now = new Date();
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const currentMonth = monthNames[now.getMonth()];
+  const currentDayOfWeek = now.getDay();
+
+  const sunday = new Date(now);
+  sunday.setDate(now.getDate() - currentDayOfWeek);
+
+  const weekdayLetters = ["S", "M", "T", "W", "T", "F", "S"];
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(sunday);
+    d.setDate(sunday.getDate() + i);
+    days.push({
+      weekday: weekdayLetters[i],
+      date: d.getDate(),
+      isToday: d.toDateString() === now.toDateString(),
+      hasEvent: i === 2 || i === 4
+    });
+  }
+
+  return {
+    month: currentMonth,
+    days,
+    events: [
+      { id: "e1", title: "Product Architecture Review", startsAt: "14:30", endsAt: "15:15", location: "Teams", source: "local" }
+    ]
+  };
 };
 
 const registerIpc = () => {
   registerWindowIpc();
+
   ipcMain.handle("window:set-tab", (_event, tab: Tab) => tab);
   ipcMain.handle("settings:get", () => ({ ...settings, startWithWindows: getStartupStatus() }));
   ipcMain.handle("settings:get-startup-status", getStartupStatus);
@@ -372,68 +685,297 @@ const registerIpc = () => {
     saveSettings();
     return { ...settings, startWithWindows: getStartupStatus() };
   });
-  ipcMain.handle("media:get-state", () => placeholderMedia);
-  ipcMain.handle("media:play-pause", () => undefined);
-  ipcMain.handle("media:next", () => undefined);
-  ipcMain.handle("media:previous", () => undefined);
-  ipcMain.handle("media:seek", () => undefined);
+
+  ipcMain.handle("media:get-state", () => {
+    const current = mediaService.getCurrentMedia();
+    log(`[IPC:media:get-state] Returning: ${current ? `"${current.title}" (${current.status})` : "null"}`);
+    return current;
+  });
+
+  ipcMain.handle("media:play-pause", () => {
+    log("[IPC:media:play-pause] Dispatching play-pause command");
+    mediaService.sendCommand("play-pause");
+    return mediaService.getCurrentMedia();
+  });
+
+  ipcMain.handle("media:next", () => {
+    log("[IPC:media:next] Dispatching next command");
+    mediaService.sendCommand("next");
+    return mediaService.getCurrentMedia();
+  });
+
+  ipcMain.handle("media:previous", () => {
+    log("[IPC:media:previous] Dispatching previous command");
+    mediaService.sendCommand("previous");
+    return mediaService.getCurrentMedia();
+  });
+
+  ipcMain.handle("media:seek", (_event, positionMs: number) => {
+    log(`[IPC:media:seek] Position requested: ${positionMs}`);
+    return mediaService.getCurrentMedia();
+  });
+
   ipcMain.handle("tasks:list", () => placeholderTasks);
-  ipcMain.handle("tasks:create", (_event, input: { title: string; dueAt?: string; link?: string }) => ({ id: Date.now(), ...input, completed: false }));
-  ipcMain.handle("tasks:complete", (_event, id: number) => { const task = placeholderTasks.find((item) => item.id === id); if (task) task.completed = true; });
-  ipcMain.handle("tasks:remove", (_event, id: number) => { const index = placeholderTasks.findIndex((item) => item.id === id); if (index >= 0) placeholderTasks.splice(index, 1); });
-  ipcMain.handle("tasks:capture-from-clipboard", () => ({ id: Date.now(), title: "Captured clipboard item", completed: false }));
-  ipcMain.handle("clipboard:list", () => []);
+  ipcMain.handle("tasks:create", (_event, input: { title: string; dueAt?: string; link?: string }) => {
+    const task: Task = { id: Date.now(), ...input, completed: false };
+    placeholderTasks.unshift(task);
+    return task;
+  });
+  ipcMain.handle("tasks:complete", (_event, id: number) => {
+    const task = placeholderTasks.find((item) => item.id === id);
+    if (task) task.completed = !task.completed;
+    return placeholderTasks;
+  });
+  ipcMain.handle("tasks:remove", (_event, id: number) => {
+    const index = placeholderTasks.findIndex((item) => item.id === id);
+    if (index >= 0) placeholderTasks.splice(index, 1);
+    return placeholderTasks;
+  });
+  ipcMain.handle("tasks:capture-from-clipboard", () => {
+    let text = "";
+    try {
+      text = clipboard.readText().trim();
+    } catch {
+      // fallback
+    }
+    const title = text
+      ? (text.length > 40 ? text.slice(0, 37) + "..." : text)
+      : "Quick clipboard task";
+    const isUrl = text.startsWith("http://") || text.startsWith("https://") || text.includes(".com");
+    const task: Task = {
+      id: Date.now(),
+      title,
+      dueAt: "Today",
+      link: isUrl ? text.replace(/^https?:\/\//, "").slice(0, 25) : undefined,
+      completed: false
+    };
+    placeholderTasks.unshift(task);
+    return task;
+  });
+
+  ipcMain.handle("clipboard:list", () => {
+    let text = "";
+    try {
+      text = clipboard.readText().trim();
+    } catch {
+      // fallback
+    }
+    if (!text) return [];
+    return [
+      {
+        id: 1,
+        kind: "text" as const,
+        preview: text.length > 50 ? text.slice(0, 47) + "..." : text,
+        pinned: true,
+        createdAt: "Now",
+        sourceApp: "Windows Clipboard"
+      }
+    ];
+  });
   ipcMain.handle("clipboard:copy", () => undefined);
   ipcMain.handle("clipboard:pin", () => undefined);
   ipcMain.handle("clipboard:remove", () => undefined);
   ipcMain.handle("clipboard:clear", () => undefined);
+
   ipcMain.handle("timers:list", () => []);
   ipcMain.handle("timers:create", () => ({ id: String(Date.now()), kind: "countdown", state: "paused", remainingMs: 0 }));
   ipcMain.handle("timers:pause", () => undefined);
   ipcMain.handle("timers:resume", () => undefined);
   ipcMain.handle("timers:cancel", () => undefined);
-  ipcMain.handle("calendar:get-week", (): CalendarWeek => ({
-    month: "Jul",
-    days: [
-      { weekday: "S", date: 13, isToday: false, hasEvent: false },
-      { weekday: "M", date: 14, isToday: false, hasEvent: false },
-      { weekday: "T", date: 15, isToday: false, hasEvent: true },
-      { weekday: "T", date: 16, isToday: true, hasEvent: false },
-      { weekday: "W", date: 17, isToday: false, hasEvent: false },
-      { weekday: "T", date: 18, isToday: false, hasEvent: false },
-      { weekday: "F", date: 19, isToday: false, hasEvent: false }
-    ],
-    events: []
-  }));
+
+  ipcMain.handle("calendar:get-week", (): CalendarWeek => getRealCurrentWeek());
   ipcMain.handle("calendar:refresh", () => undefined);
-  ipcMain.handle("calendar:create-event", (_event, input: Omit<CalendarEvent, "id" | "source">) => ({ id: crypto.randomUUID(), ...input, source: "local" }));
+  ipcMain.handle("calendar:create-event", (_event, input: Omit<CalendarEvent, "id" | "source">) => ({
+    id: crypto.randomUUID(),
+    ...input,
+    source: "local"
+  }));
   ipcMain.handle("calendar:remove-event", () => undefined);
+
+  // Shelf Image Caching, Native Drag & Drop, and OS Clipboard Copy
+  const resolveShelfCacheDir = (): string => {
+    const appData =
+      process.env.APPDATA ||
+      (process.platform === "win32" ? path.join(os.homedir(), "AppData", "Roaming") : os.homedir());
+    const shelfDir = path.join(appData, "islet", "shelf");
+    try {
+      fs.mkdirSync(shelfDir, { recursive: true });
+    } catch {
+      // ignore
+    }
+    return shelfDir;
+  };
+
+  ipcMain.handle(
+    "shelf:save-image",
+    async (_event, { name, buffer, originalPath }: { name: string; buffer: ArrayBuffer; originalPath?: string }) => {
+      try {
+        if (originalPath && fs.existsSync(originalPath)) {
+          return { filePath: originalPath };
+        }
+        const shelfDir = resolveShelfCacheDir();
+        const safeName = `${Date.now()}_${(name || "image.png").replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+        const targetPath = path.join(shelfDir, safeName);
+        fs.writeFileSync(targetPath, Buffer.from(buffer));
+        log(`[shelf:save-image] Cached temporary image to disk: ${targetPath}`);
+        return { filePath: targetPath };
+      } catch (err) {
+        log("[shelf:save-image] Failed to cache image:", err);
+        return { filePath: originalPath || "" };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "shelf:copy-image",
+    async (_event, { filePath, dataUrl }: { filePath?: string; dataUrl?: string }) => {
+      try {
+        if (filePath && fs.existsSync(filePath)) {
+          const img = nativeImage.createFromPath(filePath);
+          if (!img.isEmpty()) {
+            clipboard.writeImage(img);
+            log(`[shelf:copy-image] Copied image from path to OS clipboard: ${filePath}`);
+            return true;
+          }
+        }
+        if (dataUrl) {
+          const img = nativeImage.createFromDataURL(dataUrl);
+          if (!img.isEmpty()) {
+            clipboard.writeImage(img);
+            log("[shelf:copy-image] Copied image from dataUrl to OS clipboard");
+            return true;
+          }
+        }
+      } catch (err) {
+        log("[shelf:copy-image] Failed to copy image to clipboard:", err);
+      }
+      return false;
+    }
+  );
+
+  ipcMain.on("shelf:start-drag", (event, filePath: string) => {
+    if (!filePath || !fs.existsSync(filePath)) {
+      log(`[shelf:start-drag] File does not exist for drag: ${filePath}`);
+      return;
+    }
+    try {
+      let icon = nativeImage.createFromPath(filePath);
+      if (!icon.isEmpty()) {
+        icon = icon.resize({ width: 64, height: 64 });
+      } else {
+        icon = nativeImage.createEmpty();
+      }
+      event.sender.startDrag({
+        file: filePath,
+        icon
+      });
+      log(`[shelf:start-drag] Initiated native Windows file drag: ${filePath}`);
+    } catch (err) {
+      log("[shelf:start-drag] Error starting native drag:", err);
+    }
+  });
 };
 
 app.whenReady().then(() => {
-  if (!app.requestSingleInstanceLock()) {
+  if (!singleInstance) {
     app.quit();
     return;
   }
+  log("Islet starting");
   settings = loadSettings();
   if (settings.startWithWindows === undefined) settings.startWithWindows = true;
+
   registerIpc();
+
+  // Resilient artwork protocol handler
   protocol.handle("islet-art", (request) => {
-    const fileName = decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, "");
-    if (fileName !== "placeholder.svg") return new Response("Artwork not found", { status: 404 });
-    return net.fetch(`file://${path.join(__dirname, "../assets/artwork", fileName)}`);
+    try {
+      const url = new URL(request.url);
+      log(`[protocol:islet-art] Handling request: ${request.url}`);
+      const rawName = url.pathname.replace(/^\/+/, "") || url.hostname || url.host;
+      const fileName = decodeURIComponent(rawName);
+
+      if (fileName.includes("live-artwork") || fileName.includes("current-art")) {
+        const livePath = mediaService.getCurrentArtworkPath();
+        log(`[protocol:islet-art] Resolved live artwork path: "${livePath}"`);
+        if (livePath && fs.existsSync(livePath) && fs.statSync(livePath).isFile()) {
+          const data = fs.readFileSync(livePath);
+          log(`[protocol:islet-art] Serving live artwork: ${data.length} bytes`);
+          return new Response(data, {
+            headers: {
+              "Content-Type": "image/jpeg",
+              "Cache-Control": "no-cache",
+              "Access-Control-Allow-Origin": "*"
+            }
+          });
+        } else {
+          log(`[protocol:islet-art] livePath not found or not file: ${livePath}`);
+        }
+      }
+
+      if (!fileName || fileName === "/" || fileName === ".") {
+        return new Response("Invalid artwork request", { status: 400 });
+      }
+
+      const filePath = path.join(__dirname, "../assets/artwork", fileName);
+      if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        const data = fs.readFileSync(filePath);
+        return new Response(data, {
+          headers: {
+            "Content-Type": fileName.endsWith(".svg") ? "image/svg+xml" : "image/png",
+            "Cache-Control": "public, max-age=3600",
+            "Access-Control-Allow-Origin": "*"
+          }
+        });
+      }
+    } catch (err) {
+      log("Failed to serve artwork:", err);
+    }
+    return new Response("Artwork not found", { status: 404 });
   });
+
   createWindow();
-  applyStartupSetting(settings.startWithWindows);
+  reconcileStartupSetting();
   registerGlobalHotkey();
   createTray();
+
+  // Start real Windows GSMTC media monitoring
+  mediaService.start();
+
+  mediaService.onMediaChanged((media) => {
+    log(
+      `[main:onMediaChanged] media=${media ? `"${media.title}" (${media.status})` : "null"}, rendererReady=${rendererReady}, windowVisible=${mainWindow?.isVisible() ?? false
+      }, hidden=${hidden}`
+    );
+
+    if (rendererReady && mainWindow) {
+      log(`[main:IPC] Sending media:changed to renderer: ${media ? `"${media.title}"` : "null"}`);
+      mainWindow.webContents.send("media:changed", media);
+    }
+
+    if (media) {
+      if (media.status === "playing") {
+        if (hidden || !mainWindow?.isVisible()) {
+          showIslet("media-playing");
+        }
+      } else if (media.status === "paused") {
+        if (hidden || !mainWindow?.isVisible()) {
+          showIslet("media-paused");
+        }
+      }
+    }
+    // Note: When media stops, do NOT hide the window! The island smoothly shows the Idle Time/Day/Weather notch.
+  });
 });
 
 app.on("second-instance", () => {
-  showIslet();
+  log("Second instance request received");
+  showIslet("second-instance");
 });
 
 app.on("will-quit", () => {
+  mediaService.stop();
   globalShortcut.unregisterAll();
   tray?.destroy();
+  log("Islet quitting");
 });

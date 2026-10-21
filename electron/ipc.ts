@@ -94,7 +94,7 @@ export type CreateCalendarEventInput = Omit<CalendarEvent, "id" | "source">;
 
 export type IsletApi = {
   window: {
-    setExpanded(expanded: boolean): Promise<void>;
+    setExpanded(expanded: boolean, height?: number): Promise<void>;
     getState(): Promise<{ expanded: boolean }>;
     beginDrag(point: WindowDragPoint): Promise<void>;
     moveDrag(point: WindowDragPoint): Promise<void>;
@@ -105,8 +105,11 @@ export type IsletApi = {
     onStartCollapse(listener: () => void): () => void;
     onBlurred(listener: () => void): () => void;
     onShown(listener: () => void): () => void;
+    onHidden(listener: () => void): () => void;
+    onRendererError(listener: (message: string) => void): () => void;
     setActiveTab(tab: Tab): Promise<void>;
     getSettings(): Promise<Settings>;
+    setIgnoreMouseEvents(ignore: boolean, options?: { forward: boolean }): void;
   };
   media: {
     getState(): Promise<MediaState | null>;
@@ -148,5 +151,11 @@ export type IsletApi = {
   settings: {
     update(patch: Partial<Settings>): Promise<Settings>;
     getStartupStatus(): Promise<boolean>;
+  };
+  shelf: {
+    getPathForFile(file: File): string;
+    saveTempImage(name: string, buffer: ArrayBuffer, originalPath?: string): Promise<{ filePath: string }>;
+    copyImage(filePath?: string, dataUrl?: string): Promise<boolean>;
+    startDrag(filePath: string): void;
   };
 };

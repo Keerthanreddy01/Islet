@@ -1,9 +1,9 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { IsletApi, MediaState, Tab, WindowDragPoint } from "./ipc.js";
 
 const api: IsletApi = {
   window: {
-    setExpanded: (expanded) => ipcRenderer.invoke("window:set-expanded", expanded),
+    setExpanded: (expanded: boolean, height?: number) => ipcRenderer.invoke("window:set-expanded", expanded, height),
     getState: () => ipcRenderer.invoke("window:get-state"),
     beginDrag: (point: WindowDragPoint) => ipcRenderer.invoke("window:begin-drag", point),
     moveDrag: (point: WindowDragPoint) => ipcRenderer.invoke("window:move-drag", point),
@@ -30,8 +30,21 @@ const api: IsletApi = {
       ipcRenderer.on("window:shown", handler);
       return () => ipcRenderer.removeListener("window:shown", handler);
     },
+    onHidden: (listener) => {
+      const handler = () => listener();
+      ipcRenderer.on("window:hidden", handler);
+      return () => ipcRenderer.removeListener("window:hidden", handler);
+    },
+    onRendererError: (listener) => {
+      const handler = (_event: Electron.IpcRendererEvent, message: string) => listener(message);
+      ipcRenderer.on("renderer:error", handler);
+      return () => ipcRenderer.removeListener("renderer:error", handler);
+    },
     setActiveTab: (tab: Tab) => ipcRenderer.invoke("window:set-tab", tab),
-    getSettings: () => ipcRenderer.invoke("settings:get")
+    getSettings: () => ipcRenderer.invoke("settings:get"),
+    setIgnoreMouseEvents: (ignore: boolean, options?: { forward: boolean }) => {
+      ipcRenderer.send("window:set-ignore-mouse-events", ignore, options);
+    }
   },
   media: {
     getState: () => ipcRenderer.invoke("media:get-state"),
@@ -85,6 +98,25 @@ const api: IsletApi = {
   settings: {
     update: (patch) => ipcRenderer.invoke("settings:update", patch),
     getStartupStatus: () => ipcRenderer.invoke("settings:get-startup-status")
+  },
+  shelf: {
+    getPathForFile: (file: File) => {
+      try {
+        if (webUtils && typeof webUtils.getPathForFile === "function") {
+          return webUtils.getPathForFile(file);
+        }
+      } catch {
+        // ignore
+      }
+      return (file as any).path || "";
+    },
+    saveTempImage: (name: string, buffer: ArrayBuffer, originalPath?: string) =>
+      ipcRenderer.invoke("shelf:save-image", { name, buffer, originalPath }),
+    copyImage: (filePath?: string, dataUrl?: string) =>
+      ipcRenderer.invoke("shelf:copy-image", { filePath, dataUrl }),
+    startDrag: (filePath: string) => {
+      ipcRenderer.send("shelf:start-drag", filePath);
+    }
   }
 };
 
