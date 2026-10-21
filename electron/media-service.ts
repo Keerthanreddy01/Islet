@@ -145,7 +145,7 @@ export class MediaService {
     return () => this.listeners.delete(listener);
   }
 
-  public sendCommand(cmd: "play-pause" | "next" | "previous"): void {
+  public sendCommand(cmd: "play-pause" | "next" | "previous" | string): void {
     this.lastCommandTime = Date.now();
     this.log(`[MediaService] Dispatching media command: ${cmd} (worker alive: ${this.isWorkerAlive()})`);
     try {
@@ -153,6 +153,14 @@ export class MediaService {
     } catch (err) {
       this.log(`[MediaService ERROR] Failed to dispatch command ${cmd}:`, err);
     }
+  }
+
+  public seek(positionMs: number): void {
+    if (this.currentMedia) {
+      this.currentMedia.positionMs = positionMs;
+      this.notify(this.currentMedia);
+    }
+    this.sendCommand(`seek:${Math.round(positionMs)}`);
   }
 
   private notify(media: MediaState | null): void {

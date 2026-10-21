@@ -31,10 +31,10 @@ protocol.registerSchemesAsPrivileged([
   }
 ]);
 
-// Window element sizing - Tight 376px width (hugs notch exactly) and flush to top
-const WIN_WIDTH = 376;
-const COLLAPSED_WIN_HEIGHT = 44;
-const EXPANDED_WIN_HEIGHT = 125;
+// Window element sizing - Sleek 390px width and comfortable expanded height
+const WIN_WIDTH = 390;
+const COLLAPSED_WIN_HEIGHT = 48;
+const EXPANDED_WIN_HEIGHT = 165;
 
 const SETTINGS_FILE = "settings.json";
 
@@ -414,12 +414,47 @@ const registerGlobalHotkey = () => {
   return false;
 };
 
-const trayIcon = () =>
-  nativeImage.createFromDataURL(
-    `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
-      "<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><rect x='5' y='11' width='22' height='10' rx='5' fill='#000000' stroke='#ffffff' stroke-width='1.5'/><circle cx='10' cy='16' r='2' fill='#ffffff'/></svg>"
-    )}`
-  );
+const resolveLogoPath = (): string => {
+  const candidates = [
+    path.join(__dirname, "../assets/logo.png"),
+    path.join(__dirname, "../logo.png"),
+    path.join(process.cwd(), "assets/logo.png"),
+    path.join(process.cwd(), "logo.png")
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return path.join(process.cwd(), "assets/logo.png");
+};
+
+const resolveTrayIconPath = (): string => {
+  const candidates = [
+    path.join(__dirname, "../assets/tray-icon.png"),
+    path.join(__dirname, "../assets/tray-icon-48.png"),
+    path.join(__dirname, "../assets/tray-icon-32.png"),
+    path.join(process.cwd(), "assets/tray-icon.png"),
+    resolveLogoPath()
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return resolveLogoPath();
+};
+
+const trayIcon = (): Electron.NativeImage => {
+  const iconPath = resolveTrayIconPath();
+  if (fs.existsSync(iconPath)) {
+    try {
+      const img = nativeImage.createFromPath(iconPath);
+      if (!img.isEmpty()) {
+        return img;
+      }
+    } catch (err) {
+      log("[trayIcon] Error loading tray icon:", err);
+    }
+  }
+  return nativeImage.createEmpty();
+};
 
 const updateTrayMenu = () => {
   if (!tray) return;
@@ -483,6 +518,7 @@ const createWindow = () => {
     ...position,
     width: WIN_WIDTH,
     height: COLLAPSED_WIN_HEIGHT,
+    icon: resolveTrayIconPath(),
     transparent: true,
     frame: false,
     resizable: false,
@@ -712,6 +748,7 @@ const registerIpc = () => {
 
   ipcMain.handle("media:seek", (_event, positionMs: number) => {
     log(`[IPC:media:seek] Position requested: ${positionMs}`);
+    mediaService.seek(positionMs);
     return mediaService.getCurrentMedia();
   });
 

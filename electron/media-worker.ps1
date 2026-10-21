@@ -178,6 +178,12 @@ while ($true) {
                     [void]$session.TrySkipNextAsync()
                 } elseif ($cmd -eq "previous") {
                     [void]$session.TrySkipPreviousAsync()
+                } elseif ($cmd -match "^seek:(\d+)$") {
+                    try {
+                        $seekMs = [long]$matches[1]
+                        $ticks = $seekMs * 10000
+                        [void]$session.TryChangePlaybackPositionAsync($ticks)
+                    } catch {}
                 }
             }
         } catch {

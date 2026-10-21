@@ -32,7 +32,7 @@ async function fetchOnlineArtwork(title: string, artist: string): Promise<string
       artworkMemoryCache.set(cacheKey, saved);
       return saved;
     }
-  } catch {}
+  } catch { }
 
   try {
     // 1. Search clean title + artist
@@ -42,7 +42,7 @@ async function fetchOnlineArtwork(title: string, artist: string): Promise<string
     if (data.results && data.results.length > 0 && data.results[0].artworkUrl100) {
       const art = data.results[0].artworkUrl100.replace("100x100bb", "600x600bb");
       artworkMemoryCache.set(cacheKey, art);
-      try { sessionStorage.setItem(`art_${cacheKey}`, art); } catch {}
+      try { sessionStorage.setItem(`art_${cacheKey}`, art); } catch { }
       return art;
     }
 
@@ -53,7 +53,7 @@ async function fetchOnlineArtwork(title: string, artist: string): Promise<string
     if (data.results && data.results.length > 0 && data.results[0].artworkUrl100) {
       const art = data.results[0].artworkUrl100.replace("100x100bb", "600x600bb");
       artworkMemoryCache.set(cacheKey, art);
-      try { sessionStorage.setItem(`art_${cacheKey}`, art); } catch {}
+      try { sessionStorage.setItem(`art_${cacheKey}`, art); } catch { }
       return art;
     }
   } catch (err) {
@@ -217,6 +217,114 @@ function PauseIcon() {
   );
 }
 
+// Apple Dynamic Island Music Icons & Source Badges (Screenshots 1 & 2 replica)
+function StarSvg({ filled }: { filled?: boolean }) {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill={filled ? "#ffcc00" : "none"} stroke={filled ? "#ffcc00" : "currentColor"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+  );
+}
+
+function ApplePrevIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M11 18V6l-8.5 6 8.5 6zm.5-6 8.5 6V6l-8.5 6z" />
+    </svg>
+  );
+}
+
+function AppleNextIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6-8.5-6z" />
+    </svg>
+  );
+}
+
+function ApplePauseIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+      <rect x="5.5" y="3.5" width="4.5" height="17" rx="2.25" />
+      <rect x="14" y="3.5" width="4.5" height="17" rx="2.25" />
+    </svg>
+  );
+}
+
+function ApplePlayIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" style={{ marginLeft: 2 }}>
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  );
+}
+
+function AirPlayDeviceIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <polygon points="12 17 8 21 16 21 12 17" fill="currentColor" />
+    </svg>
+  );
+}
+
+function SoundWaveIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <path d="M11 5L6 9H2v6h4l5 4V5z" fill="currentColor" />
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+    </svg>
+  );
+}
+
+function SpotifyBadgeSvg({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="12" fill="#1db954" />
+      <path
+        d="M17.5 10.2c-2.8-1.7-7.4-1.8-10.1-1-.4.1-.9-.1-1-.6-.1-.4.1-.9.6-1 3.1-.9 8.2-.8 11.4 1.1.4.2.5.7.3 1.1-.2.4-.7.5-1.2.4zm-.2 2.7c-.3.4-.8.5-1.2.3-2.3-1.4-5.8-1.8-8.5-1-.4.1-.9-.1-1-.5-.1-.4.1-.9.5-1 3.1-.9 7-.5 9.7 1.1.4.2.5.7.5 1.1zm-1.4 2.6c-.2.3-.6.4-.9.2-2-1.2-4.5-1.5-7.5-.8-.3.1-.7-.1-.8-.4-.1-.3.1-.7.4-.8 3.3-.8 6.1-.4 8.3.9.4.2.4.6.5.9z"
+        fill="#000000"
+      />
+    </svg>
+  );
+}
+
+function AppleMusicBadgeSvg({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="12" fill="#fa243c" />
+      <path
+        d="M16.5 7.5v6.2a2.3 2.3 0 1 1-1.5-2.2V9.3l-5 1.2v4.7a2.3 2.3 0 1 1-1.5-2.2V8.8a1 1 0 0 1 .8-1l6-1.5a1 1 0 0 1 1.2 1.2z"
+        fill="#ffffff"
+      />
+    </svg>
+  );
+}
+
+function YouTubeBadgeSvg({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="12" fill="#ff0000" />
+      <circle cx="12" cy="12" r="5" fill="#ffffff" />
+      <polygon points="11,10 14,12 11,14" fill="#ff0000" />
+    </svg>
+  );
+}
+
+function MediaSourceBadge({ source, size = 20 }: { source?: string; size?: number }) {
+  switch (source) {
+    case "spotify":
+      return <SpotifyBadgeSvg size={size} />;
+    case "apple-music":
+      return <AppleMusicBadgeSvg size={size} />;
+    case "youtube":
+      return <YouTubeBadgeSvg size={size} />;
+    default:
+      return <SpotifyBadgeSvg size={size} />;
+  }
+}
+
 // Quick Action Icon SVGs
 function ClipboardSvg() {
   return (
@@ -320,6 +428,23 @@ const formatTime = (ms?: number) => {
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
+};
+
+const formatPaddedTime = (ms?: number) => {
+  if (!ms || ms < 0 || isNaN(ms)) return "00:00";
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+};
+
+const formatRemainingTime = (posMs?: number, durMs?: number) => {
+  if (!durMs || durMs <= 0) return "-0:00";
+  const validPos = Math.max(0, posMs || 0);
+  const remainingSec = Math.max(0, Math.floor((durMs - validPos) / 1000));
+  const m = Math.floor(remainingSec / 60);
+  const s = remainingSec % 60;
+  return `-${m}:${s.toString().padStart(2, "0")}`;
 };
 
 // Custom Timer Tape / Ruler Dial Component (Screenshot 2 exact replica)
@@ -630,7 +755,7 @@ function useLiveTimeAndWeather() {
         if (!current) return;
         const temp = `${current.temp_C}°`;
         const desc = current.weatherDesc?.[0]?.value || "Clear";
-        
+
         const hour = new Date().getHours();
         const isNight = hour < 6 || hour >= 19;
         let icon = isNight ? "🌙" : "☀️";
@@ -706,6 +831,7 @@ export function App() {
   const [customMinutes, setCustomMinutes] = useState(15);
   const [totalSeconds, setTotalSeconds] = useState(15 * 60);
   const [timerSeconds, setTimerSeconds] = useState(15 * 60);
+  const [isTimerActiveSession, setIsTimerActiveSession] = useState(false);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [isFocusOn, setIsFocusOn] = useState(false);
   const timerProgress = totalSeconds > 0 ? Math.max(0, Math.min(1, timerSeconds / totalSeconds)) : 0;
@@ -716,6 +842,7 @@ export function App() {
       setTimerSeconds((prev) => {
         if (prev <= 1) {
           setIsTimerRunning(false);
+          setIsTimerActiveSession(false);
           setTimerSeconds(customMinutes * 60);
           return customMinutes * 60;
         }
@@ -862,10 +989,12 @@ export function App() {
     };
   }, []);
 
+  const [isFavorite, setIsFavorite] = useState(false);
+
   const switchTab = (tab: "music" | "shelf" | "tools" | "timer") => {
     setActiveTab(tab);
     if (isExpanded) {
-      const h = tab === "shelf" ? 116 : tab === "timer" ? 118 : tab === "music" ? 100 : 48;
+      const h = tab === "shelf" ? 116 : tab === "timer" ? 118 : tab === "music" ? 152 : 48;
       void window.islet.window.setExpanded(true, h);
     }
   };
@@ -875,8 +1004,8 @@ export function App() {
     setState("expanding");
     const h = panelHeight || (
       activeTab === "shelf" ? 116 :
-      activeTab === "timer" ? 118 :
-      activeTab === "music" && hasActiveMedia ? 100 : 48
+        activeTab === "timer" ? 118 :
+          activeTab === "music" && hasActiveMedia ? 152 : 48
     );
     void window.islet.window.setExpanded(true, h).catch((err: unknown) => {
       console.error("Expand failed:", err);
@@ -973,6 +1102,15 @@ export function App() {
     setIsSwitching(true);
     void window.islet.media.next().catch((err: unknown) => console.error("Media next:", err));
     setTimeout(() => setIsSwitching(false), 1200);
+  };
+
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    if (!media || !media.durationMs || media.durationMs <= 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const targetMs = Math.round(ratio * media.durationMs);
+    void window.islet.media.seek(targetMs).catch((err: unknown) => console.error("Media seek error:", err));
   };
 
   // =========================================================================
@@ -1119,8 +1257,8 @@ export function App() {
   const isShelfActive = activeTab === "shelf" && storedImages.length > 0;
   const isTimerActive = activeTab === "timer";
   const isMusicActive = Boolean(hasActiveMedia && media && activeTab !== "shelf" && activeTab !== "tools" && activeTab !== "timer");
-  // Only show collapsed timer capsule when timer is actually running
-  const showCollapsedTimer = isTimerRunning;
+  // Show collapsed timer capsule when timer is active (running or paused)
+  const showCollapsedTimer = isTimerActiveSession;
 
   // Dynamic sleek proportions:
   let targetWidth = 250;
@@ -1137,9 +1275,9 @@ export function App() {
       targetHeight = 118;
       targetRadius = "28px";
     } else if (isMusicActive) {
-      targetWidth = 370;
-      targetHeight = 94;
-      targetRadius = "26px";
+      targetWidth = 368;
+      targetHeight = 152;
+      targetRadius = "28px";
     } else {
       // Short, sleek Quick Actions Bar — only 48px high!
       targetWidth = 340;
@@ -1151,6 +1289,11 @@ export function App() {
       targetWidth = 200;
       targetHeight = 38;
       targetRadius = "19px";
+    } else if (hasActiveMedia && media) {
+      // Screenshot 1 replica: Sleek music pill (356px x 44px with 22px continuous pill radius)
+      targetWidth = 356;
+      targetHeight = 44;
+      targetRadius = "22px";
     }
   }
 
@@ -1327,7 +1470,7 @@ export function App() {
                 </div>
               </motion.div>
             ) : isTimerActive ? (
-              !isTimerRunning ? (
+              !isTimerActiveSession ? (
                 /* =================================================================
                    CUSTOM TIMER SETUP DIAL (Screenshot 2 exact replica)
                    ================================================================= */
@@ -1342,6 +1485,7 @@ export function App() {
                   onStart={() => {
                     setTotalSeconds(customMinutes * 60);
                     setTimerSeconds(customMinutes * 60);
+                    setIsTimerActiveSession(true);
                     setIsTimerRunning(true);
                   }}
                   onBackToTools={() => switchTab("tools")}
@@ -1349,7 +1493,7 @@ export function App() {
                 />
               ) : (
                 /* =================================================================
-                   ACTIVE RUNNING TIMER PANEL (Screenshot 1 replica)
+                   ACTIVE RUNNING TIMER PANEL (Screenshot 2 exact replica)
                    ================================================================= */
                 <motion.div
                   key="expanded-timer-running"
@@ -1362,13 +1506,34 @@ export function App() {
                   onPointerMove={onPointerMove}
                   onPointerUp={onPointerUp}
                 >
-                  {/* Top Animated Orange Progress Line */}
-                  <div
-                    className="timer-running-top-line"
-                    style={{ width: `${timerProgress * 100}%` }}
-                  />
+                  {/* Dynamic Island Animated Perimeter Progress Contour (Screenshot 2 replica) */}
+                  <svg
+                    className="timer-perimeter-svg"
+                    viewBox="0 0 356 118"
+                    preserveAspectRatio="none"
+                  >
+                    {/* Background Subtle Amber Track with smooth rounded corners on all edges */}
+                    <path
+                      d="M 220 3.5 L 330.5 3.5 A 22 22 0 0 1 352.5 25.5 L 352.5 90 A 24.5 24.5 0 0 1 328 114.5 L 28 114.5 A 24.5 24.5 0 0 1 3.5 90 L 3.5 25.5 A 22 22 0 0 1 25.5 3.5 L 220 3.5"
+                      fill="none"
+                      stroke="rgba(255, 159, 10, 0.14)"
+                      strokeWidth="1.8"
+                    />
+                    {/* Active Vivid Orange Running Progress Contour with clean 2.2px line width */}
+                    <path
+                      d="M 220 3.5 L 330.5 3.5 A 22 22 0 0 1 352.5 25.5 L 352.5 90 A 24.5 24.5 0 0 1 328 114.5 L 28 114.5 A 24.5 24.5 0 0 1 3.5 90 L 3.5 25.5 A 22 22 0 0 1 25.5 3.5 L 220 3.5"
+                      fill="none"
+                      stroke="#ff9f0a"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      pathLength={100}
+                      strokeDasharray={`${Math.max(0.01, timerProgress * 100)} 100`}
+                      strokeDashoffset={0}
+                      style={{ transition: "stroke-dasharray 0.8s linear" }}
+                    />
+                  </svg>
 
-                  {/* Top Header Row */}
+                  {/* Top Header Row with Navigation & Close */}
                   <div className="timer-header-row" onPointerDown={(e) => e.stopPropagation()}>
                     <div className="timer-header-left">
                       <button
@@ -1389,12 +1554,6 @@ export function App() {
                       )}
                     </div>
 
-                    {/* Bell + Finish Time */}
-                    <div className="timer-alarm-info" title="Estimated finish time">
-                      <BellSvg />
-                      <span>{getEndTime(timerSeconds)}</span>
-                    </div>
-
                     {/* Minimize / Close */}
                     <button
                       className="timer-nav-btn timer-min-btn"
@@ -1406,7 +1565,7 @@ export function App() {
                     </button>
                   </div>
 
-                  {/* Main Row: [Pause Circle Button] [Center Big Digits + Timer] [Cancel Red Circle Button] */}
+                  {/* Main Row: [Pause Circle Button] [Center: Bell + Big Digits + Timer] [Cancel Red Circle Button] */}
                   <div className="timer-main-row" onPointerDown={(e) => e.stopPropagation()}>
                     <motion.button
                       className={`timer-action-btn timer-pause-btn ${!isTimerRunning ? "is-paused" : ""}`}
@@ -1416,18 +1575,23 @@ export function App() {
                       whileTap={{ scale: 0.94 }}
                     >
                       {isTimerRunning ? (
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-                          <rect x="6" y="4" width="3.8" height="16" rx="1.9" />
-                          <rect x="14.2" y="4" width="3.8" height="16" rx="1.9" />
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="white">
+                          <rect x="6" y="4" width="4.2" height="16" rx="2.1" />
+                          <rect x="13.8" y="4" width="4.2" height="16" rx="2.1" />
                         </svg>
                       ) : (
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="white" style={{ marginLeft: "2px" }}>
-                          <polygon points="7 4 20 12 7 20 7 4" />
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="white" style={{ marginLeft: "2px" }}>
+                          <polygon points="7,4 20,12 7,20" />
                         </svg>
                       )}
                     </motion.button>
 
                     <div className="timer-center-display">
+                      {/* Bell + Finish Time (Centered directly above countdown, Screenshot 2 replica) */}
+                      <div className="timer-alarm-info" title="Estimated finish time">
+                        <BellSvg />
+                        <span>{getEndTime(timerSeconds)}</span>
+                      </div>
                       <div className="timer-big-digits">{formatTimer(timerSeconds)}</div>
                       <div className="timer-sublabel">Timer</div>
                     </div>
@@ -1436,6 +1600,7 @@ export function App() {
                       className="timer-action-btn timer-cancel-btn"
                       onClick={() => {
                         setIsTimerRunning(false);
+                        setIsTimerActiveSession(false);
                         setTimerSeconds(customMinutes * 60);
                         setTotalSeconds(customMinutes * 60);
                       }}
@@ -1443,7 +1608,7 @@ export function App() {
                       whileHover={{ scale: 1.06 }}
                       whileTap={{ scale: 0.94 }}
                     >
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ff453a" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ff453a" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
                         <line x1="17" y1="7" x2="7" y2="17" />
                         <line x1="7" y1="7" x2="17" y2="17" />
                       </svg>
@@ -1453,128 +1618,137 @@ export function App() {
               )
             ) : isMusicActive && media ? (
               /* =================================================================
-                 EXPANDED MUSIC PLAYER (MacBook Style Proportions)
+                 EXPANDED MUSIC PLAYER (Screenshot 2 exact replica)
                  ================================================================= */
               <motion.div
                 key="expanded-music"
-                className="expanded-music-panel"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ type: "spring", stiffness: 400, damping: 30, mass: 0.6 }}
+                className="expanded-music-panel drag-handle"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ type: "spring", stiffness: 420, damping: 28, mass: 0.55 }}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
               >
-                {/* Header */}
-                <header
-                  className="expanded-header drag-handle"
-                  onPointerDown={onPointerDown}
-                  onPointerMove={onPointerMove}
-                  onPointerUp={onPointerUp}
-                >
-                  <div className="source-badge-pill" onPointerDown={(e) => e.stopPropagation()}>
-                    <span className={`source-dot source-dot-${media.source}`} />
-                    <span>
-                      {media.source === "spotify"
-                        ? "Spotify"
-                        : media.source === "youtube"
-                          ? "YouTube"
-                          : media.source === "apple-music"
-                            ? "Apple Music"
-                            : media.source === "browser"
-                              ? "Browser"
-                              : "Music"}
-                    </span>
-                  </div>
-
-                  <div className="expanded-header-actions" onPointerDown={(e) => e.stopPropagation()}>
-                    {isTimerRunning && (
-                      <button
-                        className="music-shelf-btn"
-                        onClick={() => switchTab("timer")}
-                        title={`View Timer (${formatTimer(timerSeconds)})`}
-                      >
-                        <span style={{ color: "#ff9500" }}>⏱</span>
-                        <span style={{ color: "#ff9500", fontWeight: 700 }}>{formatTimer(timerSeconds)}</span>
-                      </button>
-                    )}
-                    <button
-                      className="music-shelf-btn"
-                      onClick={() => switchTab("tools")}
-                      title="Quick Tools"
-                    >
-                      <span>✦ Tools</span>
-                    </button>
-                    {/* Clipboard toggle button if files are present */}
-                    {storedImages.length > 0 && (
-                      <button
-                        className="music-shelf-btn"
-                        onClick={() => switchTab("shelf")}
-                        title={`View ${storedImages.length} saved images`}
-                      >
-                        <span>📋</span>
-                        <span>{storedImages.length}</span>
-                      </button>
-                    )}
-                    {isPlaying && <MicroEq />}
-                    <button
-                      className="music-close-btn"
-                      onClick={triggerCollapse}
-                      title="Dismiss (Esc)"
-                      aria-label="Dismiss"
-                    >
-                      <CloseIcon />
-                    </button>
-                  </div>
-                </header>
-
-                {/* Main Row: 46px Artwork (left) + Track Info (center) + Transport (right) */}
-                <div className="expanded-main-row">
-                  <div className="expanded-art-wrap">
+                {/* Top Row: [52px Artwork] [Title & Artist] [SoundWave / Minimize] */}
+                <div className="expanded-music-top-row">
+                  <div className="expanded-music-art-wrap">
                     <AlbumArtwork
                       src={media.artworkUrl}
                       title={media.title}
                       artist={media.artist}
                       source={media.source}
-                      className="expanded-art"
-                      size={46}
+                      className="expanded-music-art"
+                      size={52}
                     />
                   </div>
 
-                  <div className="expanded-info-col">
-                    <span className="expanded-title" title={media.title}>
+                  <div className="expanded-music-info">
+                    <span className="expanded-music-title" title={media.title}>
                       {isSwitching ? "" : media.title}
                     </span>
-                    <span className="expanded-artist" title={media.artist}>
+                    <span className="expanded-music-artist" title={media.artist}>
                       {isSwitching ? "" : media.artist || "Unknown Artist"}
                     </span>
                   </div>
 
-                  <div className="expanded-transport-row" onPointerDown={(e) => e.stopPropagation()}>
-                    <button className="transport-btn" onClick={handlePrev} title="Previous" aria-label="Previous">
-                      <PrevIcon />
+                  <div className="expanded-music-top-right" onPointerDown={(e) => e.stopPropagation()}>
+                    <button
+                      className="music-soundwave-btn"
+                      onClick={() => switchTab("tools")}
+                      title="Quick Tools"
+                    >
+                      <SoundWaveIcon />
                     </button>
                     <button
-                      className="transport-play-btn"
-                      onClick={handlePlayPause}
-                      title={isPlaying ? "Pause" : "Play"}
-                      aria-label={isPlaying ? "Pause" : "Play"}
+                      className="music-close-btn"
+                      onClick={triggerCollapse}
+                      title="Minimize to capsule (Esc)"
+                      aria-label="Minimize"
                     >
-                      {isPlaying ? <PauseIcon /> : <PlayIcon />}
-                    </button>
-                    <button className="transport-btn" onClick={handleNext} title="Next" aria-label="Next">
-                      <NextIcon />
+                      <CloseIcon />
                     </button>
                   </div>
                 </div>
 
-                {/* Scrubber */}
-                <div className="expanded-progress-section" onPointerDown={(e) => e.stopPropagation()}>
-                  <div className="progress-track">
-                    <div className="progress-fill" style={{ width: `${progressPercent}%` }} />
+                {/* Middle Row: [0:48] [Scrubber Track with Light Cyan Fill] [-2:08] */}
+                <div className="expanded-music-scrubber-row" onPointerDown={(e) => e.stopPropagation()}>
+                  <span className="scrubber-time-label">
+                    {formatTime(media.positionMs)}
+                  </span>
+
+                  <div
+                    className="expanded-scrubber-track"
+                    onClick={handleSeek}
+                    title="Click to seek"
+                  >
+                    <div
+                      className="expanded-scrubber-fill"
+                      style={{ width: `${progressPercent}%` }}
+                    />
                   </div>
-                  <div className="progress-time-row">
-                    <span>{formatTime(media.positionMs)}</span>
-                    <span>{formatTime(media.durationMs)}</span>
+
+                  <span className="scrubber-time-label align-right">
+                    {formatRemainingTime(media.positionMs, media.durationMs)}
+                  </span>
+                </div>
+
+                {/* Bottom Row: [Star / Favorite] [Previous  Play/Pause  Next] [AirPlay Device] */}
+                <div className="expanded-music-controls-row" onPointerDown={(e) => e.stopPropagation()}>
+                  <motion.button
+                    className={`music-side-icon-btn ${isFavorite ? "is-active" : ""}`}
+                    onClick={() => setIsFavorite((prev) => !prev)}
+                    title={isFavorite ? "Favorited" : "Favorite"}
+                    whileHover={{ scale: 1.15 }}
+                    whileTap={{ scale: 0.88 }}
+                  >
+                    <StarSvg filled={isFavorite} />
+                  </motion.button>
+
+                  <div className="expanded-transport-center">
+                    <motion.button
+                      className="apple-transport-btn"
+                      onClick={handlePrev}
+                      title="Previous"
+                      aria-label="Previous"
+                      whileHover={{ scale: 1.15 }}
+                      whileTap={{ scale: 0.88 }}
+                    >
+                      <ApplePrevIcon />
+                    </motion.button>
+
+                    <motion.button
+                      className="apple-transport-play-btn"
+                      onClick={handlePlayPause}
+                      title={isPlaying ? "Pause" : "Play"}
+                      aria-label={isPlaying ? "Pause" : "Play"}
+                      whileHover={{ scale: 1.15 }}
+                      whileTap={{ scale: 0.88 }}
+                    >
+                      {isPlaying ? <ApplePauseIcon /> : <ApplePlayIcon />}
+                    </motion.button>
+
+                    <motion.button
+                      className="apple-transport-btn"
+                      onClick={handleNext}
+                      title="Next"
+                      aria-label="Next"
+                      whileHover={{ scale: 1.15 }}
+                      whileTap={{ scale: 0.88 }}
+                    >
+                      <AppleNextIcon />
+                    </motion.button>
                   </div>
+
+                  <motion.button
+                    className="music-side-icon-btn"
+                    title={`Output: ${media.source ? media.source.toUpperCase() : "Audio Output"}`}
+                    whileHover={{ scale: 1.15 }}
+                    whileTap={{ scale: 0.88 }}
+                  >
+                    <AirPlayDeviceIcon />
+                  </motion.button>
                 </div>
               </motion.div>
             ) : (
@@ -1617,8 +1791,8 @@ export function App() {
                   {/* Timer / Pomodoro with interactive countdown */}
                   <motion.button
                     id="qi-timer"
-                    className={`quick-icon-btn ${isTimerRunning ? "active timer-running" : ""}`}
-                    title={isTimerRunning ? `Timer: ${formatTimer(timerSeconds)} (Click to view)` : `Custom Timer`}
+                    className={`quick-icon-btn ${isTimerActiveSession ? "active timer-running" : ""}`}
+                    title={isTimerActiveSession ? `Timer: ${formatTimer(timerSeconds)} (${isTimerRunning ? "Running" : "Paused"})` : `Custom Timer`}
                     onClick={() => {
                       switchTab("timer");
                     }}
@@ -1626,7 +1800,7 @@ export function App() {
                     whileTap={{ scale: 0.9 }}
                   >
                     <span className="quick-icon-svg"><TimerSvg /></span>
-                    {isTimerRunning && (
+                    {isTimerActiveSession && (
                       <span className="quick-timer-label">{formatTimer(timerSeconds)}</span>
                     )}
                   </motion.button>
@@ -1724,7 +1898,7 @@ export function App() {
             </motion.div>
           ) : hasActiveMedia && media ? (
             /* =================================================================
-               COLLAPSED MUSIC CAPSULE (250px x 42px)
+               COLLAPSED MUSIC CAPSULE (Screenshot 1 replica)
                ================================================================= */
             <motion.div
               key="collapsed-music"
@@ -1733,11 +1907,15 @@ export function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.12 }}
-              onPointerDown={onPointerDown}
+              onPointerDown={(e) => {
+                setActiveTab("music");
+                onPointerDown(e);
+              }}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
-              title="Click to expand (Ctrl+Alt+Space)"
+              title="Click to expand music player (Ctrl+Alt+Space)"
             >
+              {/* Left: Square Album Artwork */}
               <div className="capsule-art-wrap">
                 <AlbumArtwork
                   src={media.artworkUrl}
@@ -1745,11 +1923,19 @@ export function App() {
                   artist={media.artist}
                   source={media.source}
                   className="capsule-art"
-                  size={30}
+                  size={32}
                 />
               </div>
 
-              {/* Title shows empty during song transition as requested */}
+              {/* Next: Green Equalizer Bars + Current Playback Time (e.g. 00:51) */}
+              <div className="capsule-eq-group">
+                <MicroEq />
+                <span className="capsule-time-text">
+                  {formatPaddedTime(media.positionMs)}
+                </span>
+              </div>
+
+              {/* Center: Track Title & Artist */}
               <div className="capsule-meta">
                 <span className="capsule-title" title={media.title}>
                   {isSwitching ? "" : media.title}
@@ -1759,30 +1945,31 @@ export function App() {
                 </span>
               </div>
 
-              {/* Clipboard symbol shown ONLY when images are stored */}
-              {storedImages.length > 0 && (
-                <button
-                  className="notch-clipboard-badge"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setActiveTab("shelf");
-                    triggerExpand();
-                  }}
-                  title={`${storedImages.length} saved files — Click to view`}
-                >
-                  <span className="clipboard-icon">📋</span>
-                  <span className="badge-count">{storedImages.length}</span>
-                </button>
-              )}
-
-              <div className="capsule-status-badge">
+              {/* Right: In-place Circular Play/Pause Button */}
+              <motion.button
+                className="capsule-play-btn"
+                onClick={handlePlayPause}
+                title={isPlaying ? "Pause" : "Play"}
+                aria-label={isPlaying ? "Pause" : "Play"}
+                whileHover={{ scale: 1.08 }}
+                whileTap={{ scale: 0.92 }}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
                 {isPlaying ? (
-                  <MicroEq />
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
+                    <rect x="5" y="4" width="4.5" height="16" rx="2" />
+                    <rect x="14.5" y="4" width="4.5" height="16" rx="2" />
+                  </svg>
                 ) : (
-                  <div className="capsule-paused-pill" title="Paused">
-                    <span className="paused-dot" />
-                  </div>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="white" style={{ marginLeft: 1 }}>
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
                 )}
+              </motion.button>
+
+              {/* Far Right: Circular App Source Badge (Spotify, Apple Music, YouTube) */}
+              <div className="capsule-source-badge" title={media.source ? media.source.toUpperCase() : "Music"}>
+                <MediaSourceBadge source={media.source} size={24} />
               </div>
             </motion.div>
           ) : (

@@ -18,7 +18,9 @@
   --accent-orange: #ff9500;
 }
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -26,7 +28,8 @@
   -ms-overflow-style: none !important;
 }
 
-::-webkit-scrollbar, *::-webkit-scrollbar {
+::-webkit-scrollbar,
+*::-webkit-scrollbar {
   display: none !important;
   width: 0 !important;
   height: 0 !important;
@@ -188,7 +191,7 @@ button {
 }
 
 /* ==========================================================================
-   COLLAPSED MUSIC CAPSULE — Spacious & Highly Readable (250px x 42px)
+   COLLAPSED MUSIC CAPSULE — Sleek Pill Bar (Screenshot 1 replica)
    ========================================================================== */
 .capsule-music-bar {
   width: 100%;
@@ -196,9 +199,11 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 10px;
-  gap: 10px;
+  padding: 0 10px 0 8px;
+  gap: 8px;
   cursor: pointer;
+  user-select: none;
+  box-sizing: border-box;
   transition: background-color 0.12s ease;
 }
 
@@ -207,16 +212,20 @@ button {
 }
 
 .capsule-art-wrap {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.55);
+  background: #14171d;
 }
 
 .capsule-art,
-.art-fallback {
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
+.capsule-art-wrap .art-fallback {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   object-fit: cover;
   display: block;
 }
@@ -228,41 +237,20 @@ button {
   justify-content: center;
 }
 
-.capsule-meta {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  min-width: 0;
-  flex: 1;
-  gap: 1px;
-}
-
-.capsule-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.2;
-}
-
-.capsule-artist {
-  font-size: 10px;
-  font-weight: 450;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.2;
-}
-
-.capsule-status-badge {
+.capsule-eq-group {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 5px;
   flex-shrink: 0;
-  width: 14px;
+}
+
+.capsule-time-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.2px;
+  line-height: 1;
 }
 
 /* Micro Equalizer */
@@ -270,170 +258,150 @@ button {
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  height: 10px;
+  height: 11px;
 }
 
 .eq-bar {
-  width: 2px;
+  width: 2.2px;
   border-radius: 1px;
-  background: var(--accent-green);
-  animation: miniEqPulse 0.9s ease-in-out infinite alternate;
+  background: #1ed760;
+  animation: miniEqPulse 0.85s ease-in-out infinite alternate;
 }
 
 .b1 {
   height: 5px;
-  animation-delay: 0.15s;
+  animation-delay: 0.1s;
 }
 
 .b2 {
-  height: 10px;
-  animation-delay: 0.35s;
+  height: 11px;
+  animation-delay: 0.3s;
 }
 
 .b3 {
-  height: 6px;
-  animation-delay: 0.22s;
+  height: 7px;
+  animation-delay: 0.2s;
 }
 
 @keyframes miniEqPulse {
   0% {
     transform: scaleY(0.35);
   }
-
   100% {
     transform: scaleY(1);
   }
 }
 
-.capsule-paused-pill {
-  width: 6px;
-  height: 6px;
+.capsule-meta {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  flex: 1;
+  gap: 1px;
+  padding-left: 2px;
+}
+
+.capsule-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+  letter-spacing: -0.15px;
+}
+
+.capsule-artist {
+  font-size: 10.5px;
+  font-weight: 450;
+  color: #8e8e93;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.capsule-play-btn {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
   border-radius: 50%;
-  background: var(--text-tertiary);
-  opacity: 0.8;
+  background: #242426;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  transition: all 0.14s ease;
+}
+
+.capsule-play-btn:hover {
+  background: #323236;
+  color: #ffffff;
+}
+
+.capsule-source-badge {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* ==========================================================================
-   EXPANDED MUSIC PLAYER — Compact MacBook Proportions (370px x 94px)
+   EXPANDED MUSIC PLAYER — Apple Dynamic Island Replica (Screenshot 2 replica)
    ========================================================================== */
 .expanded-music-panel {
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 8px 12px 6px;
+  justify-content: space-between;
+  padding: 14px 18px 12px 18px;
   box-sizing: border-box;
-  justify-content: space-between;
+  user-select: none;
 }
 
-/* Header */
-.expanded-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 18px;
-}
-
-.source-badge-pill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.source-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #34c759;
-  box-shadow: 0 0 6px rgba(52, 199, 89, 0.6);
-}
-
-.source-dot-spotify {
-  background: #1db954;
-  box-shadow: 0 0 6px rgba(29, 185, 84, 0.7);
-}
-
-.source-dot-youtube {
-  background: #ff0000;
-  box-shadow: 0 0 6px rgba(255, 0, 0, 0.7);
-}
-
-.source-dot-apple-music {
-  background: #fc3c44;
-  box-shadow: 0 0 6px rgba(252, 60, 68, 0.7);
-}
-
-.source-dot-browser {
-  background: #0a84ff;
-  box-shadow: 0 0 6px rgba(10, 132, 255, 0.7);
-}
-
-.expanded-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.music-close-btn {
-  width: 18px;
-  height: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  color: var(--text-tertiary);
-  background: rgba(255, 255, 255, 0.08);
-  transition: all 0.14s ease;
-}
-
-.music-close-btn:hover {
-  color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.2);
-  transform: scale(1.08);
-}
-
-/* Main Row: 56px Artwork (left) + Track Details (center flex: 1) + Transport Controls (right) */
-.expanded-main-row {
+/* Top Row: [52px Artwork] [Title & Artist] [SoundWave / Minimize] */
+.expanded-music-top-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 1px 0;
+  width: 100%;
 }
 
-.expanded-art-wrap {
-  width: 46px;
-  height: 46px;
+.expanded-music-art-wrap {
+  width: 52px;
+  height: 52px;
   flex-shrink: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  background: #111215;
 }
 
-.expanded-art {
-  width: 46px;
-  height: 46px;
-  border-radius: 9px;
+.expanded-music-art,
+.expanded-music-art-wrap .art-fallback {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
   object-fit: cover;
   display: block;
 }
 
-.expanded-info-col {
+.expanded-music-info {
   display: flex;
   flex-direction: column;
   justify-content: center;
   min-width: 0;
   flex: 1;
-  gap: 3px;
+  gap: 2px;
 }
 
-.expanded-title {
-  font-size: 13.5px;
+.expanded-music-title {
+  font-size: 14.5px;
   font-weight: 700;
   color: #ffffff;
   white-space: nowrap;
@@ -443,90 +411,161 @@ button {
   letter-spacing: -0.2px;
 }
 
-.expanded-artist {
-  font-size: 11.5px;
+.expanded-music-artist {
+  font-size: 12.5px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.65);
+  color: #8e8e93;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.2;
 }
 
-/* Transport Controls on the Right - perfectly fills the width */
-.expanded-transport-row {
+.expanded-music-top-right {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   flex-shrink: 0;
 }
 
-.transport-btn {
-  width: 25px;
-  height: 25px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  color: rgba(255, 255, 255, 0.82);
-  transition: all 0.12s ease;
-}
-
-.transport-btn:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.12);
-  transform: scale(1.08);
-}
-
-.transport-play-btn {
+.music-soundwave-btn {
   width: 28px;
   height: 28px;
-  border-radius: 50%;
-  background: #ffffff;
-  color: #000000;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
-  transition: transform 0.12s ease, background-color 0.12s ease;
+  color: #8e8e93;
+  border-radius: 50%;
+  transition: all 0.15s ease;
 }
 
-.transport-play-btn:hover {
+.music-soundwave-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
   transform: scale(1.08);
-  background: #f2f2f5;
 }
 
-/* Bottom Scrubber & Timestamps */
-.expanded-progress-section {
+.music-close-btn {
+  width: 22px;
+  height: 22px;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #636366;
+  background: rgba(255, 255, 255, 0.08);
+  transition: all 0.15s ease;
 }
 
-.progress-track {
+.music-close-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(1.08);
+}
+
+/* Middle Row: [0:48] [Scrubber Track with Light Slate-Cyan Fill] [-2:08] */
+.expanded-music-scrubber-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 2px 0;
+}
+
+.scrubber-time-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #8e8e93;
+  font-variant-numeric: tabular-nums;
+  min-width: 32px;
+  user-select: none;
+  line-height: 1;
+}
+
+.scrubber-time-label.align-right {
+  text-align: right;
+}
+
+.expanded-scrubber-track {
+  flex: 1;
   height: 4px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.18);
+  cursor: pointer;
+  position: relative;
   overflow: hidden;
-  width: 100%;
+  transition: height 0.14s ease;
 }
 
-.progress-fill {
+.expanded-scrubber-track:hover {
+  height: 6px;
+  border-radius: 3px;
+}
+
+.expanded-scrubber-fill {
   height: 100%;
-  background: #ffffff;
-  border-radius: 2px;
-  box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
-  transition: width 0.25s linear;
+  background: #9bbcd4;
+  border-radius: inherit;
+  transition: width 0.15s linear;
 }
 
-.progress-time-row {
+/* Bottom Row: [Star / Favorite] [Previous  Play/Pause  Next] [AirPlay Device] */
+.expanded-music-controls-row {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  font-size: 9.5px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.5);
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
+  width: 100%;
+  padding: 0 4px 2px 4px;
+}
+
+.music-side-icon-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8e8e93;
+  border-radius: 50%;
+  transition: all 0.15s ease;
+}
+
+.music-side-icon-btn:hover {
+  color: #ffffff;
+}
+
+.music-side-icon-btn.is-active {
+  color: #ffcc00;
+}
+
+.expanded-transport-center {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.apple-transport-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  transition: all 0.14s ease;
+}
+
+.apple-transport-btn:hover {
+  color: #ffffff;
+  filter: brightness(1.2);
+}
+
+.apple-transport-play-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  transition: all 0.14s ease;
+}
+
+.apple-transport-play-btn:hover {
+  filter: brightness(1.25);
 }
 
 /* ==========================================================================
@@ -1120,7 +1159,7 @@ button {
   text-shadow: 0 0 6px rgba(255, 149, 0, 0.35);
 }
 
-/* Maximized Island Panel (Screenshot 3 Bottom) */
+/* Maximized Island Panel (Screenshot 2 exact replica) */
 .expanded-timer-panel {
   position: absolute;
   top: 0;
@@ -1130,25 +1169,27 @@ button {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 8px 18px 12px 18px;
+  padding: 7px 16px 11px 16px;
   box-sizing: border-box;
   overflow: hidden;
-  border-radius: 30px;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-bottom-left-radius: 28px;
+  border-bottom-right-radius: 28px;
   background: transparent;
   will-change: transform, opacity;
 }
 
-/* Top Progress Line (Screenshot 1) */
-.timer-running-top-line {
+/* Dynamic Island Perimeter Progress SVG (Screenshot 2 exact replica) */
+.timer-perimeter-svg {
   position: absolute;
   top: 0;
   left: 0;
-  height: 2px;
-  background: #ff9f0a;
-  border-radius: 2px;
-  box-shadow: none;
-  transition: width 0.8s linear;
-  z-index: 10;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+  filter: drop-shadow(0 0 3px rgba(255, 159, 10, 0.3));
 }
 
 .timer-header-row {
@@ -1195,17 +1236,6 @@ button {
   justify-content: center;
 }
 
-.timer-alarm-info {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: #8e8e93;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.2px;
-  font-variant-numeric: tabular-nums;
-}
-
 .timer-main-row {
   position: relative;
   z-index: 2;
@@ -1213,13 +1243,13 @@ button {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  margin-top: 2px;
-  padding: 0 4px;
+  margin-top: 1px;
+  padding: 0 6px;
 }
 
 .timer-action-btn {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   border: none;
   outline: none;
@@ -1232,19 +1262,21 @@ button {
 }
 
 .timer-pause-btn {
-  background: #2c2c2e;
+  background: #242426;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .timer-pause-btn:hover {
-  background: #3a3a3c;
+  background: #343438;
 }
 
 .timer-cancel-btn {
-  background: rgba(255, 69, 58, 0.22);
+  background: #361416;
+  border: 1px solid rgba(255, 69, 58, 0.28);
 }
 
 .timer-cancel-btn:hover {
-  background: rgba(255, 69, 58, 0.35);
+  background: #4a191d;
 }
 
 .timer-center-display {
@@ -1254,18 +1286,30 @@ button {
   justify-content: center;
 }
 
+.timer-alarm-info {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #8e8e93;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 2px;
+}
+
 .timer-big-digits {
-  font-size: 34px;
+  font-size: 38px;
   font-weight: 700;
   color: #ffffff;
   line-height: 1;
-  letter-spacing: -0.5px;
+  letter-spacing: -0.6px;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
 }
 
 .timer-sublabel {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   color: #8e8e93;
   margin-top: 3px;
