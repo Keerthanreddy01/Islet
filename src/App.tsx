@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import type { MediaState } from "../electron/ipc";
+import appLogo from "../logo.png";
 
 const artworkMemoryCache = new Map<string, string>();
 
@@ -306,23 +307,27 @@ function YouTubeBadgeSvg({ size = 20 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <circle cx="12" cy="12" r="12" fill="#ff0000" />
-      <circle cx="12" cy="12" r="5" fill="#ffffff" />
-      <polygon points="11,10 14,12 11,14" fill="#ff0000" />
+      <polygon
+        points="10,8 16,12 10,16"
+        fill="#ffffff"
+        stroke="#ffffff"
+        strokeWidth="0.8"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
 
 function MediaSourceBadge({ source, size = 20 }: { source?: string; size?: number }) {
-  switch (source) {
-    case "spotify":
-      return <SpotifyBadgeSvg size={size} />;
-    case "apple-music":
-      return <AppleMusicBadgeSvg size={size} />;
-    case "youtube":
-      return <YouTubeBadgeSvg size={size} />;
-    default:
-      return <SpotifyBadgeSvg size={size} />;
+  const s = (source || "").toLowerCase();
+  if (s.includes("spotify")) {
+    return <SpotifyBadgeSvg size={size} />;
   }
+  if (s.includes("apple")) {
+    return <AppleMusicBadgeSvg size={size} />;
+  }
+  // Default to YouTube for youtube, browser tabs, or generic media
+  return <YouTubeBadgeSvg size={size} />;
 }
 
 // Quick Action Icon SVGs
@@ -447,7 +452,20 @@ const formatRemainingTime = (posMs?: number, durMs?: number) => {
   return `-${m}:${s.toString().padStart(2, "0")}`;
 };
 
-// Custom Timer Tape / Ruler Dial Component (Screenshot 2 exact replica)
+const TICK_SPACING = 14;
+const MAX_MINUTES = 60;
+const MIN_MINUTES = 1;
+const centerOffset = 170;
+const minX = centerOffset - MAX_MINUTES * TICK_SPACING; // -670
+const maxX = centerOffset - MIN_MINUTES * TICK_SPACING; // 156
+
+const TIMER_TICKS = Array.from({ length: 61 }, (_, m) => ({
+  minute: m,
+  isMajor: m % 5 === 0,
+  label: m % 5 === 0 ? String(m) : null
+}));
+
+// Custom Timer Tape / Ruler Dial Component (Ultra-responsive, 120fps smooth scrolling)
 function CustomTimerDial({
   selectedMinutes,
   onChange,
@@ -457,18 +475,10 @@ function CustomTimerDial({
 }: {
   selectedMinutes: number;
   onChange: (mins: number) => void;
-  onStart: () => void;
+  onStart: (mins: number) => void;
   onBackToTools: () => void;
   onClose: () => void;
 }) {
-  const TICK_SPACING = 14;
-  const MAX_MINUTES = 60;
-  const MIN_MINUTES = 1;
-  const centerOffset = 170;
-
-  const minX = centerOffset - MAX_MINUTES * TICK_SPACING; // -670
-  const maxX = centerOffset - MIN_MINUTES * TICK_SPACING; // 156
-
   const trackRef = useRef<HTMLDivElement>(null);
   const digitsRef = useRef<HTMLDivElement>(null);
 
@@ -489,7 +499,7 @@ function CustomTimerDial({
       targetX.current = snapX;
       currentMinutesRef.current = selectedMinutes;
       if (trackRef.current) {
-        trackRef.current.style.transform = `translateX(${snapX}px)`;
+        trackRef.current.style.transform = `translate3d(${snapX}px, 0, 0)`;
       }
       if (digitsRef.current) {
         digitsRef.current.textContent = `${selectedMinutes.toString().padStart(2, "0")}:00`;
@@ -497,7 +507,7 @@ function CustomTimerDial({
     }
   }, [selectedMinutes]);
 
-  const updateDisplay = (x: number) => {
+  const updateDisplay = (x: number, notifyParent = false) => {
     const rawM = (centerOffset - x) / TICK_SPACING;
     const roundedM = Math.max(MIN_MINUTES, Math.min(MAX_MINUTES, Math.round(rawM)));
     if (roundedM !== currentMinutesRef.current) {
@@ -505,6 +515,8 @@ function CustomTimerDial({
       if (digitsRef.current) {
         digitsRef.current.textContent = `${roundedM.toString().padStart(2, "0")}:00`;
       }
+    }
+    if (notifyParent) {
       onChange(roundedM);
     }
   };
@@ -515,10 +527,10 @@ function CustomTimerDial({
 
     const step = () => {
       const diff = targetX.current - currentX.current;
-      if (Math.abs(diff) < 0.25) {
+      if (Math.abs(diff) < 0.2) {
         currentX.current = targetX.current;
         if (trackRef.current) {
-          trackRef.current.style.transform = `translateX(${currentX.current}px)`;
+          trackRef.current.style.transform = `translate3d(${currentX.current}px, 0, 0)`;
         }
         updateDisplay(currentX.current);
         rafId.current = null;
@@ -526,10 +538,10 @@ function CustomTimerDial({
         return;
       }
 
-      // Butter-smooth exponential spring lerp
-      currentX.current += diff * 0.22;
+      // Snappy, butter-smooth exponential lerp
+      currentX.current += diff * 0.32;
       if (trackRef.current) {
-        trackRef.current.style.transform = `translateX(${currentX.current}px)`;
+        trackRef.current.style.transform = `translate3d(${currentX.current}px, 0, 0)`;
       }
       updateDisplay(currentX.current);
       rafId.current = requestAnimationFrame(step);
@@ -564,9 +576,9 @@ function CustomTimerDial({
     targetX.current = clampedX;
 
     if (trackRef.current) {
-      trackRef.current.style.transform = `translateX(${clampedX}px)`;
+      trackRef.current.style.transform = `translate3d(${clampedX}px, 0, 0)`;
     }
-    updateDisplay(clampedX);
+    updateDisplay(clampedX, false);
   };
 
   const handlePointerUp = () => {
@@ -576,7 +588,9 @@ function CustomTimerDial({
     // Smooth magnetic snap to the nearest integer minute
     const nearestM = Math.max(MIN_MINUTES, Math.min(MAX_MINUTES, Math.round((centerOffset - currentX.current) / TICK_SPACING)));
     targetX.current = centerOffset - nearestM * TICK_SPACING;
-    animateToTarget();
+    animateToTarget(() => {
+      onChange(nearestM);
+    });
   };
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -586,10 +600,19 @@ function CustomTimerDial({
     if (isDragging.current) return;
 
     // Support both trackpad smooth deltas and discrete mouse wheel notches
-    const delta = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
-    // Scrolling down increases time, moving track to the left
-    const scrollStep = delta > 0 ? -18 : 18;
-    const newTarget = Math.max(minX, Math.min(maxX, targetX.current + scrollStep));
+    const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+    if (Math.abs(delta) < 0.1) return;
+
+    let step: number;
+    if (Math.abs(delta) < 40) {
+      // Smooth continuous scrolling (trackpad / precision wheel)
+      step = -delta * 0.9;
+    } else {
+      // Discrete notches (mouse wheel)
+      step = -Math.sign(delta) * (TICK_SPACING * 2);
+    }
+
+    const newTarget = Math.max(minX - 8, Math.min(maxX + 8, targetX.current + step));
     targetX.current = newTarget;
 
     animateToTarget();
@@ -599,8 +622,10 @@ function CustomTimerDial({
     wheelTimer.current = setTimeout(() => {
       const nearestM = Math.max(MIN_MINUTES, Math.min(MAX_MINUTES, Math.round((centerOffset - targetX.current) / TICK_SPACING)));
       targetX.current = centerOffset - nearestM * TICK_SPACING;
-      animateToTarget();
-    }, 140);
+      animateToTarget(() => {
+        onChange(nearestM);
+      });
+    }, 110);
   };
 
   // Clean up RAF and timer on unmount
@@ -611,18 +636,14 @@ function CustomTimerDial({
     };
   }, []);
 
-  const ticks = [];
-  for (let m = 0; m <= MAX_MINUTES; m++) {
-    const isMajor = m % 5 === 0;
-    ticks.push({
-      minute: m,
-      isMajor,
-      label: isMajor ? String(m) : null
-    });
-  }
-
   return (
-    <div className="custom-timer-setup-panel">
+    <motion.div
+      className="custom-timer-setup-panel"
+      initial={{ opacity: 0, scale: 0.96 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.96 }}
+      transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+    >
       {/* Top Header Row */}
       <div className="timer-setup-header" onPointerDown={(e) => e.stopPropagation()}>
         <button className="timer-nav-btn" onClick={onBackToTools} title="Back to Quick Tools">
@@ -646,10 +667,10 @@ function CustomTimerDial({
           ref={trackRef}
           className="timer-ruler-track"
           style={{
-            transform: `translateX(${currentX.current}px)`
+            transform: `translate3d(${currentX.current}px, 0, 0)`
           }}
         >
-          {ticks.map((t) => (
+          {TIMER_TICKS.map((t) => (
             <div
               key={t.minute}
               className={`timer-tick-wrap ${t.isMajor ? "is-major" : "is-minor"}`}
@@ -658,7 +679,9 @@ function CustomTimerDial({
                 e.stopPropagation();
                 if (t.minute >= 1) {
                   targetX.current = centerOffset - t.minute * TICK_SPACING;
-                  animateToTarget();
+                  animateToTarget(() => {
+                    onChange(t.minute);
+                  });
                 }
               }}
             >
@@ -682,7 +705,7 @@ function CustomTimerDial({
       <div className="timer-setup-bottom-row" onPointerDown={(e) => e.stopPropagation()}>
         <motion.button
           className="timer-start-btn"
-          onClick={onStart}
+          onClick={() => onStart(currentMinutesRef.current)}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.94 }}
         >
@@ -693,7 +716,7 @@ function CustomTimerDial({
           {selectedMinutes.toString().padStart(2, "0")}:00
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -948,8 +971,13 @@ export function App() {
     api.window.setIgnoreMouseEvents(true, { forward: true });
 
     let isOverNotch = false;
+    let scheduled = false;
+    let latestE: MouseEvent | null = null;
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const checkHover = () => {
+      scheduled = false;
+      if (!latestE) return;
+
       if (drag.current.active) {
         if (!isOverNotch) {
           isOverNotch = true;
@@ -958,8 +986,15 @@ export function App() {
         return;
       }
 
-      const elem = document.elementFromPoint(e.clientX, e.clientY);
-      const over = Boolean(elem && elem.closest(".islet-notch-surface"));
+      const surface = document.querySelector(".islet-notch-surface");
+      if (!surface) return;
+      const rect = surface.getBoundingClientRect();
+      const over = (
+        latestE.clientX >= rect.left &&
+        latestE.clientX <= rect.right &&
+        latestE.clientY >= rect.top &&
+        latestE.clientY <= rect.bottom
+      );
 
       if (over !== isOverNotch) {
         isOverNotch = over;
@@ -968,6 +1003,14 @@ export function App() {
         } else {
           api.window.setIgnoreMouseEvents(true, { forward: true });
         }
+      }
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      latestE = e;
+      if (!scheduled) {
+        scheduled = true;
+        requestAnimationFrame(checkHover);
       }
     };
 
@@ -1321,9 +1364,9 @@ export function App() {
         exit={{ opacity: 0, scale: 0.95 }}
         transition={{
           type: "spring",
-          stiffness: 380,
-          damping: 30,
-          mass: 0.6
+          stiffness: 440,
+          damping: 34,
+          mass: 0.55
         }}
         onAnimationComplete={handleAnimationComplete}
         onMouseEnter={() => {
@@ -1371,7 +1414,7 @@ export function App() {
           )}
         </AnimatePresence>
 
-        <AnimatePresence mode="wait" initial={false}>
+        <AnimatePresence initial={false}>
           {isExpanded && !isCollapsing ? (
             isShelfActive ? (
               /* =================================================================
@@ -1380,10 +1423,10 @@ export function App() {
               <motion.div
                 key="expanded-shelf"
                 className="expanded-shelf-panel"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ type: "spring", stiffness: 400, damping: 30, mass: 0.6 }}
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
               >
                 {/* Header */}
                 <div
@@ -1482,9 +1525,11 @@ export function App() {
                     setTotalSeconds(mins * 60);
                     setTimerSeconds(mins * 60);
                   }}
-                  onStart={() => {
-                    setTotalSeconds(customMinutes * 60);
-                    setTimerSeconds(customMinutes * 60);
+                  onStart={(mins) => {
+                    const m = mins ?? customMinutes;
+                    setCustomMinutes(m);
+                    setTotalSeconds(m * 60);
+                    setTimerSeconds(m * 60);
                     setIsTimerActiveSession(true);
                     setIsTimerRunning(true);
                   }}
@@ -1498,10 +1543,10 @@ export function App() {
                 <motion.div
                   key="expanded-timer-running"
                   className="expanded-timer-panel drag-handle"
-                  initial={{ opacity: 0, scale: 0.95 }}
+                  initial={{ opacity: 0, scale: 0.96 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  transition={{ type: "spring", stiffness: 420, damping: 28, mass: 0.55 }}
+                  exit={{ opacity: 0, scale: 0.96 }}
+                  transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
                   onPointerDown={onPointerDown}
                   onPointerMove={onPointerMove}
                   onPointerUp={onPointerUp}
@@ -1623,10 +1668,10 @@ export function App() {
               <motion.div
                 key="expanded-music"
                 className="expanded-music-panel drag-handle"
-                initial={{ opacity: 0, scale: 0.95 }}
+                initial={{ opacity: 0, scale: 0.96 }}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ type: "spring", stiffness: 420, damping: 28, mass: 0.55 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
@@ -1758,18 +1803,17 @@ export function App() {
               <motion.div
                 key="expanded-quick-tools"
                 className="expanded-quickbar-panel drag-handle"
-                initial={{ opacity: 0, scale: 0.95 }}
+                initial={{ opacity: 0, scale: 0.96 }}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ type: "spring", stiffness: 420, damping: 28, mass: 0.55 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
               >
-                {/* Brand / Status Indicator */}
+                {/* Brand Logo */}
                 <div className="quickbar-brand" onPointerDown={(e) => e.stopPropagation()}>
-                  <span className="quickbar-dot" />
-                  <span className="quickbar-name">Islet</span>
+                  <img src={appLogo} alt="Logo" className="quickbar-logo" />
                 </div>
 
                 {/* Quick Action Tools Row */}
@@ -1850,10 +1894,10 @@ export function App() {
             <motion.div
               key="collapsed-timer"
               className="capsule-timer-bar drag-handle"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.12 }}
+              initial={{ opacity: 0, scale: 0.94 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.94 }}
+              transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
               onPointerDown={(event) => {
                 setActiveTab("timer");
                 onPointerDown(event);
@@ -1903,10 +1947,10 @@ export function App() {
             <motion.div
               key="collapsed-music"
               className="capsule-music-bar drag-handle"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.12 }}
+              initial={{ opacity: 0, scale: 0.94 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.94 }}
+              transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
               onPointerDown={(e) => {
                 setActiveTab("music");
                 onPointerDown(e);
@@ -1968,7 +2012,16 @@ export function App() {
               </motion.button>
 
               {/* Far Right: Circular App Source Badge (Spotify, Apple Music, YouTube) */}
-              <div className="capsule-source-badge" title={media.source ? media.source.toUpperCase() : "Music"}>
+              <div
+                className="capsule-source-badge"
+                title={
+                  media.source === "spotify"
+                    ? "Spotify"
+                    : media.source === "apple-music"
+                    ? "Apple Music"
+                    : "YouTube"
+                }
+              >
                 <MediaSourceBadge source={media.source} size={24} />
               </div>
             </motion.div>
@@ -1979,10 +2032,10 @@ export function App() {
             <motion.div
               key="collapsed-idle"
               className="capsule-idle-bar drag-handle"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.12 }}
+              initial={{ opacity: 0, scale: 0.94 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.94 }}
+              transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}

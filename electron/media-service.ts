@@ -223,29 +223,31 @@ export class MediaService {
       const appLower = (data.app || "media").toLowerCase();
       const titleLower = (data.title || "").toLowerCase();
       const artistLower = (data.artist || "").toLowerCase();
+      const albumLower = (data.album || "").toLowerCase();
       let source: MediaState["source"] = "generic";
       if (appLower.includes("spotify")) {
         source = "spotify";
-      } else if (
-        titleLower.includes("youtube") ||
-        artistLower.includes("youtube") ||
-        appLower.includes("youtube")
-      ) {
-        source = "youtube";
-      } else if (
-        appLower.includes("brave") ||
-        appLower.includes("chrome") ||
-        appLower.includes("edge") ||
-        appLower.includes("firefox")
-      ) {
-        source = "browser";
       } else if (appLower.includes("apple")) {
         source = "apple-music";
       } else if (appLower.includes("vlc")) {
         source = "vlc";
+      } else if (
+        titleLower.includes("youtube") ||
+        artistLower.includes("youtube") ||
+        appLower.includes("youtube") ||
+        albumLower.includes("youtube") ||
+        appLower.includes("brave") ||
+        appLower.includes("chrome") ||
+        appLower.includes("edge") ||
+        appLower.includes("firefox") ||
+        appLower.includes("opera") ||
+        appLower.includes("vivaldi") ||
+        appLower.includes("browser")
+      ) {
+        source = "youtube";
       }
 
-      const isBrowserSource = source === "browser" || source === "youtube" || source === "generic";
+      const isBrowserSource = source === "youtube" || source === "generic";
 
       if (!isBrowserSource && data.artworkPath && fs.existsSync(data.artworkPath)) {
         this.currentArtworkPath = data.artworkPath;

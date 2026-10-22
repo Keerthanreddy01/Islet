@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import type { IsletApi } from "../electron/ipc";
 
 declare global {

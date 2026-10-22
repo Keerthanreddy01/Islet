@@ -415,23 +415,25 @@ const registerGlobalHotkey = () => {
 };
 
 const resolveLogoPath = (): string => {
+  const newLogoPath = "C:\\Users\\keert\\Desktop\\Islet\\logo.png";
+  if (fs.existsSync(newLogoPath)) return newLogoPath;
   const candidates = [
-    path.join(__dirname, "../assets/logo.png"),
+    path.join(process.cwd(), "logo.png"),
     path.join(__dirname, "../logo.png"),
     path.join(process.cwd(), "assets/logo.png"),
-    path.join(process.cwd(), "logo.png")
+    path.join(__dirname, "../assets/logo.png")
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;
   }
-  return path.join(process.cwd(), "assets/logo.png");
+  return path.join(process.cwd(), "logo.png");
 };
 
 const resolveTrayIconPath = (): string => {
   const candidates = [
-    path.join(__dirname, "../assets/tray-icon.png"),
-    path.join(__dirname, "../assets/tray-icon-48.png"),
     path.join(__dirname, "../assets/tray-icon-32.png"),
+    path.join(process.cwd(), "assets/tray-icon-32.png"),
+    path.join(__dirname, "../assets/tray-icon.png"),
     path.join(process.cwd(), "assets/tray-icon.png"),
     resolveLogoPath()
   ];
@@ -447,7 +449,7 @@ const trayIcon = (): Electron.NativeImage => {
     try {
       const img = nativeImage.createFromPath(iconPath);
       if (!img.isEmpty()) {
-        return img;
+        return img.resize({ width: 32, height: 32, quality: "best" });
       }
     } catch (err) {
       log("[trayIcon] Error loading tray icon:", err);
@@ -518,7 +520,7 @@ const createWindow = () => {
     ...position,
     width: WIN_WIDTH,
     height: COLLAPSED_WIN_HEIGHT,
-    icon: resolveTrayIconPath(),
+    icon: resolveLogoPath(),
     transparent: true,
     frame: false,
     resizable: false,
