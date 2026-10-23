@@ -101,6 +101,51 @@ function Get-MediaSnapshot {
         return $null
     }
 
+    $playbackType = ""
+    try {
+        if ($prop.PlaybackType) {
+            $playbackType = $prop.PlaybackType.ToString().ToLower()
+        }
+    } catch {}
+
+    $sourceHint = ""
+    $appLower = $app.ToLower()
+    $titleLower = $title.ToLower()
+    $artistLower = $artist.ToLower()
+    $albumLower = $album.ToLower()
+
+    if ($appLower -match "spotify" -or $titleLower -match "spotify" -or $artistLower -match "spotify" -or $albumLower -match "spotify") {
+        $sourceHint = "spotify"
+    } elseif ($appLower -match "apple" -or $titleLower -match "apple music") {
+        $sourceHint = "apple-music"
+    } elseif ($appLower -match "vlc") {
+        $sourceHint = "vlc"
+    } elseif ($titleLower -match "youtube" -or $artistLower -match "youtube" -or $appLower -match "youtube" -or $albumLower -match "youtube") {
+        $sourceHint = "youtube"
+    } else {
+        # Check active browser window titles to distinguish Spotify Web vs YouTube
+        try {
+            $browserProcs = Get-Process -Name "brave", "chrome", "msedge", "firefox", "opera", "vivaldi", "spotify" -ErrorAction SilentlyContinue |
+                Where-Object { $_.MainWindowTitle }
+            foreach ($bp in $browserProcs) {
+                $wt = $bp.MainWindowTitle.ToLower()
+                if ($wt -match "spotify") {
+                    $sourceHint = "spotify"
+                    break
+                }
+            }
+            if (-not $sourceHint) {
+                foreach ($bp in $browserProcs) {
+                    $wt = $bp.MainWindowTitle.ToLower()
+                    if ($wt -match "youtube") {
+                        $sourceHint = "youtube"
+                        break
+                    }
+                }
+            }
+        } catch {}
+    }
+
     $timeline = $session.GetTimelineProperties()
     $posMs = if ($timeline) { [Math]::Round($timeline.Position.TotalMilliseconds) } else { 0 }
     $durMs = if ($timeline) { [Math]::Round($timeline.EndTime.TotalMilliseconds) } else { 0 }
@@ -141,6 +186,8 @@ function Get-MediaSnapshot {
     return [PSCustomObject]@{
         type = "media"
         app = $app
+        sourceHint = $sourceHint
+        playbackType = $playbackType
         title = $title
         artist = $artist
         album = $album
@@ -184,6 +231,12 @@ while ($true) {
                         $ticks = $seekMs * 10000
                         [void]$session.TryChangePlaybackPositionAsync($ticks)
                     } catch {}
+                } elseif ($cmd -eq "volume-up") {
+                    try { (New-Object -ComObject WScript.Shell).SendKeys([char]175) } catch {}
+                } elseif ($cmd -eq "volume-down") {
+                    try { (New-Object -ComObject WScript.Shell).SendKeys([char]174) } catch {}
+                } elseif ($cmd -eq "volume-mute") {
+                    try { (New-Object -ComObject WScript.Shell).SendKeys([char]173) } catch {}
                 }
             }
         } catch {

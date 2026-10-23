@@ -173,17 +173,12 @@ const displayForPosition = (position: WindowPosition): Electron.Display => {
 };
 
 const clampWindowPosition = (
-  position: WindowPosition,
-  winWidth: number = WIN_WIDTH,
+  _position: WindowPosition,
+  _winWidth: number = WIN_WIDTH,
   _winHeight: number = COLLAPSED_WIN_HEIGHT,
-  display: Electron.Display = displayForPosition(position)
+  display: Electron.Display = getActiveDisplay()
 ): WindowPosition => {
-  const area = display.workArea;
-  const rawX = Number.isFinite(position?.x) ? position.x : area.x;
-  return {
-    x: ((Math.round(Math.max(area.x, Math.min(rawX, area.x + area.width - winWidth))) || 0) | 0),
-    y: ((Math.round(area.y) || 0) | 0)
-  };
+  return defaultTopCenterPosition(display);
 };
 
 const defaultTopCenterPosition = (display: Electron.Display = getActiveDisplay()): WindowPosition => {
@@ -202,19 +197,9 @@ const persistPosition = (position: WindowPosition) => {
   saveSettings();
 };
 
-const snapPosition = (position: WindowPosition): WindowPosition => {
-  const display = displayForPosition(position);
-  const area = display.workArea;
-  const rawX = Number.isFinite(position?.x) ? position.x : area.x;
-  const clampedX = Math.round(Math.max(area.x, Math.min(rawX, area.x + area.width - WIN_WIDTH)));
-  const topCenterX = Math.round(area.x + (area.width - WIN_WIDTH) / 2);
-
-  // Snap to center if dragged within 40px of center; otherwise respect user position on left or right!
-  const finalX = Math.abs(clampedX - topCenterX) < 40 ? topCenterX : clampedX;
-  return {
-    x: ((Math.round(finalX) || 0) | 0),
-    y: ((Math.round(area.y) || 0) | 0)
-  };
+const snapPosition = (_position: WindowPosition): WindowPosition => {
+  const display = getActiveDisplay();
+  return defaultTopCenterPosition(display);
 };
 
 const animateSnap = (from: WindowPosition, to: WindowPosition) => {
@@ -275,13 +260,12 @@ const animateSnap = (from: WindowPosition, to: WindowPosition) => {
 const resizeToExpanded = (customHeight?: number) => {
   if (!mainWindow) return;
   const targetH = customHeight && customHeight > EXPANDED_WIN_HEIGHT ? customHeight + 10 : EXPANDED_WIN_HEIGHT;
-  const display = currentAnchor ? displayForPosition(currentAnchor) : getActiveDisplay();
-  const anchor = currentAnchor ?? defaultTopCenterPosition(display);
-  const clamped = clampWindowPosition(anchor, WIN_WIDTH, targetH, display);
-  currentAnchor = clamped;
+  const display = getActiveDisplay();
+  const pos = defaultTopCenterPosition(display);
+  currentAnchor = pos;
   mainWindow.setBounds({
-    x: clamped.x,
-    y: clamped.y,
+    x: pos.x,
+    y: pos.y,
     width: WIN_WIDTH,
     height: targetH
   });
@@ -389,7 +373,7 @@ const requestCollapse = () => {
       resizeToCollapsed();
     }
     collapseTimer = null;
-  }, 450);
+  }, 650);
 };
 
 const registerGlobalHotkey = () => {
@@ -617,42 +601,21 @@ const registerWindowIpc = () => {
 
   ipcMain.handle("window:get-state", () => ({ expanded }));
 
-  ipcMain.handle("window:begin-drag", (_event, point: WindowDragPoint) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    if (snapAnimationTimer) {
-      clearTimeout(snapAnimationTimer);
-      snapAnimationTimer = null;
-    }
-    const [x] = mainWindow.getPosition();
-    const sx = Number.isFinite(point?.screenX) ? point.screenX : x;
-    dragOffset = { x: sx - x, y: 0 };
-  });
+  ipcMain.handle("window:begin-drag", () => {});
 
-  ipcMain.handle("window:move-drag", (_event, point: WindowDragPoint) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    if (!Number.isFinite(point?.screenX)) return;
-    const display = getActiveDisplay();
-    const area = display.workArea;
-    const bounds = mainWindow.getBounds();
-    const rawX = Math.round(point.screenX - (dragOffset?.x || 0));
-    const targetX = ((Math.max(area.x, Math.min(rawX, area.x + area.width - bounds.width))) || 0) | 0;
-    const targetY = (Math.round(area.y) || 0) | 0;
-    try {
-      mainWindow.setPosition(targetX, targetY);
-    } catch (err) {
-      log("[window:move-drag] setPosition error:", err);
-    }
-  });
+  ipcMain.handle("window:move-drag", () => {});
 
   ipcMain.handle("window:end-drag", () => {
     if (!mainWindow || mainWindow.isDestroyed()) return { x: 0, y: 0 };
-    const pos = mainWindow.getPosition();
-    const curX = Number.isFinite(pos?.[0]) ? (pos[0] | 0) : ((currentAnchor?.x ?? 0) | 0);
-    const curY = Number.isFinite(pos?.[1]) ? (pos[1] | 0) : ((currentAnchor?.y ?? 0) | 0);
-    const snapped = snapPosition({ x: curX, y: curY });
-    currentAnchor = snapped;
-    animateSnap({ x: curX, y: curY }, snapped);
-    return snapped;
+    const display = getActiveDisplay();
+    const pos = defaultTopCenterPosition(display);
+    currentAnchor = pos;
+    try {
+      mainWindow.setPosition(pos.x, pos.y);
+    } catch (err) {
+      log("[window:end-drag] setPosition error:", err);
+    }
+    return pos;
   });
 
   ipcMain.handle("window:collapse", () => {
@@ -752,6 +715,18 @@ const registerIpc = () => {
     log(`[IPC:media:seek] Position requested: ${positionMs}`);
     mediaService.seek(positionMs);
     return mediaService.getCurrentMedia();
+  });
+
+  ipcMain.handle("media:volume-up", () => {
+    mediaService.sendCommand("volume-up");
+  });
+
+  ipcMain.handle("media:volume-down", () => {
+    mediaService.sendCommand("volume-down");
+  });
+
+  ipcMain.handle("media:volume-mute", () => {
+    mediaService.sendCommand("volume-mute");
   });
 
   ipcMain.handle("tasks:list", () => placeholderTasks);

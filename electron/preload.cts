@@ -56,7 +56,10 @@ const api: IsletApi = {
     playPause: () => ipcRenderer.invoke("media:play-pause"),
     next: () => ipcRenderer.invoke("media:next"),
     previous: () => ipcRenderer.invoke("media:previous"),
-    seek: (positionMs) => ipcRenderer.invoke("media:seek", positionMs)
+    seek: (positionMs) => ipcRenderer.invoke("media:seek", positionMs),
+    volumeUp: () => ipcRenderer.invoke("media:volume-up"),
+    volumeDown: () => ipcRenderer.invoke("media:volume-down"),
+    volumeMute: () => ipcRenderer.invoke("media:volume-mute")
   },
   tasks: {
     list: () => ipcRenderer.invoke("tasks:list"),

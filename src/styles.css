@@ -96,11 +96,21 @@ button {
   contain: layout paint style;
 }
 
+.islet-notch-surface {
+  transition: border-color 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 .islet-notch-surface.mode-collapsed {
   background: #000000;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-top: none;
   box-shadow: none !important;
+  cursor: pointer;
+}
+
+.islet-notch-surface.mode-collapsed:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5) !important;
 }
 
 .islet-notch-surface.mode-expanded {
@@ -110,18 +120,24 @@ button {
   box-shadow: none !important;
 }
 
+.islet-notch-surface.mode-collapsing {
+  background: #000000;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-top: none;
+  box-shadow: none !important;
+  cursor: default;
+  pointer-events: none;
+}
+
 .drag-handle {
-  cursor: grab;
+  cursor: default;
 }
 
 .drag-handle:active {
-  cursor: grabbing;
+  cursor: default;
 }
 
 /* Subpanel Absolute Positioning for Smooth Apple-style Morphing & Crossfading */
-.capsule-idle-bar,
-.capsule-music-bar,
-.capsule-timer-bar,
 .expanded-music-panel,
 .expanded-shelf-panel,
 .expanded-quickbar-panel,
@@ -138,16 +154,31 @@ button {
   -webkit-backface-visibility: hidden;
 }
 
+/* Collapsed Capsule Bars: Fixed heights pinned to top so they never stretch or jump vertically during morph */
+.capsule-idle-bar,
+.capsule-music-bar,
+.capsule-timer-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  box-sizing: border-box;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
 /* ==========================================================================
    COLLAPSED IDLE CAPSULE — Time, Day & Live Weather (250px x 42px)
    ========================================================================== */
 .capsule-idle-bar {
+  height: 42px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 14px;
   cursor: pointer;
-  transition: background-color 0.12s ease;
+  transition: background-color 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .capsule-idle-bar:hover {
@@ -204,7 +235,7 @@ button {
    ========================================================================== */
 .capsule-music-bar {
   width: 100%;
-  height: 100%;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -213,7 +244,7 @@ button {
   cursor: pointer;
   user-select: none;
   box-sizing: border-box;
-  transition: background-color 0.12s ease;
+  transition: background-color 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .capsule-music-bar:hover {
@@ -461,9 +492,11 @@ button {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  color: #636366;
+  color: rgba(255, 255, 255, 0.62);
   background: rgba(255, 255, 255, 0.08);
-  transition: all 0.15s ease;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
 .music-close-btn:hover {
@@ -535,7 +568,7 @@ button {
   justify-content: center;
   color: #8e8e93;
   border-radius: 50%;
-  transition: all 0.15s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .music-side-icon-btn:hover {
@@ -557,7 +590,7 @@ button {
   align-items: center;
   justify-content: center;
   color: #ffffff;
-  transition: all 0.14s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .apple-transport-btn:hover {
@@ -570,7 +603,7 @@ button {
   align-items: center;
   justify-content: center;
   color: #ffffff;
-  transition: all 0.14s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .apple-transport-play-btn:hover {
@@ -770,15 +803,17 @@ button {
 }
 
 .shelf-close-btn {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(255, 255, 255, 0.62);
   background: rgba(255, 255, 255, 0.08);
-  transition: all 0.14s ease;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
 .shelf-close-btn:hover {
@@ -1093,7 +1128,7 @@ button {
   border: 1px solid rgba(255, 255, 255, 0.09);
   color: rgba(255, 255, 255, 0.68);
   cursor: pointer;
-  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+  transition: background 0.18s cubic-bezier(0.16, 1, 0.3, 1), color 0.18s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   outline: none;
   flex-shrink: 0;
   padding: 0;
@@ -1154,10 +1189,12 @@ button {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  height: 100%;
+  height: 38px;
   padding: 0 16px;
   cursor: pointer;
   user-select: none;
+  box-sizing: border-box;
+  transition: background-color 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .collapsed-timer-left {
@@ -1226,7 +1263,7 @@ button {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  height: 20px;
+  height: 24px;
 }
 
 .timer-header-left {
@@ -1236,31 +1273,70 @@ button {
 }
 
 .timer-nav-btn {
+  height: 22px;
   background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.65);
-  font-size: 10.5px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  font-weight: 550;
+  padding: 0 9px 0 7px;
+  border-radius: 11px;
   cursor: pointer;
-  transition: all 0.14s ease;
-  display: flex;
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
   align-items: center;
-  gap: 3px;
+  justify-content: center;
+  gap: 3.5px;
+  line-height: 1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
 }
 
 .timer-nav-btn:hover {
   background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.24);
   color: #ffffff;
+  transform: scale(1.04);
+}
+
+.timer-nav-btn:active {
+  transform: scale(0.96);
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.timer-back-arrow {
+  display: block;
+  transform: translateY(-0.5px);
 }
 
 .timer-min-btn {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.62);
+  display: flex;
+  align-items: center;
   justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.timer-min-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.26);
+  color: #ffffff;
+  transform: scale(1.08);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.timer-min-btn:active {
+  transform: scale(0.92);
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .timer-main-row {
@@ -1362,19 +1438,27 @@ button {
 }
 
 .timer-setup-header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  height: 20px;
+  height: 24px;
 }
 
 .timer-setup-title {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   font-size: 11px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.45);
-  letter-spacing: 0.5px;
+  letter-spacing: 0.8px;
   text-transform: uppercase;
+  pointer-events: none;
+  white-space: nowrap;
+  user-select: none;
 }
 
 /* Horizontal Ruler / Tape Viewport with smooth edge fades */
@@ -1526,15 +1610,17 @@ button {
 }
 
 .quickbar-close-btn {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.62);
   background: rgba(255, 255, 255, 0.08);
-  transition: all 0.14s ease;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
   flex-shrink: 0;
 }
 

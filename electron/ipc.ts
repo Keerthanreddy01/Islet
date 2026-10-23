@@ -118,6 +118,9 @@ export type IsletApi = {
     next(): Promise<void>;
     previous(): Promise<void>;
     seek(positionMs: number): Promise<void>;
+    volumeUp(): Promise<void>;
+    volumeDown(): Promise<void>;
+    volumeMute(): Promise<void>;
   };
   tasks: {
     list(): Promise<Task[]>;

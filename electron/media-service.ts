@@ -224,18 +224,35 @@ export class MediaService {
       const titleLower = (data.title || "").toLowerCase();
       const artistLower = (data.artist || "").toLowerCase();
       const albumLower = (data.album || "").toLowerCase();
+      const sourceHint = (((data as any).sourceHint as string) || "").toLowerCase();
+      const playbackType = (((data as any).playbackType as string) || "").toLowerCase();
+
       let source: MediaState["source"] = "generic";
-      if (appLower.includes("spotify")) {
+      if (
+        appLower.includes("spotify") ||
+        sourceHint === "spotify" ||
+        albumLower.includes("spotify") ||
+        titleLower.includes("spotify") ||
+        artistLower.includes("spotify")
+      ) {
         source = "spotify";
-      } else if (appLower.includes("apple")) {
+      } else if (appLower.includes("apple") || sourceHint === "apple-music") {
         source = "apple-music";
       } else if (appLower.includes("vlc")) {
         source = "vlc";
       } else if (
         titleLower.includes("youtube") ||
         artistLower.includes("youtube") ||
-        appLower.includes("youtube") ||
         albumLower.includes("youtube") ||
+        appLower.includes("youtube") ||
+        sourceHint === "youtube" ||
+        playbackType === "video"
+      ) {
+        source = "youtube";
+      } else if (data.album && data.album.length > 0) {
+        // Track has a genuine music album name (e.g. Spotify Web Player)
+        source = "spotify";
+      } else if (
         appLower.includes("brave") ||
         appLower.includes("chrome") ||
         appLower.includes("edge") ||
@@ -244,7 +261,7 @@ export class MediaService {
         appLower.includes("vivaldi") ||
         appLower.includes("browser")
       ) {
-        source = "youtube";
+        source = "browser";
       }
 
       const isBrowserSource = source === "youtube" || source === "generic";

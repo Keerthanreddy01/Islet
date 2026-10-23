@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import type { MediaState } from "../electron/ipc";
 import appLogo from "../logo.png";
 
@@ -180,8 +180,18 @@ function MusicIcon() {
 
 function CloseIcon() {
   return (
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-      <path d="M18 6 6 18M6 6l12 12" />
+    <svg
+      width="9"
+      height="9"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ display: "block" }}
+    >
+      <path d="M2.5 2.5L9.5 9.5M9.5 2.5L2.5 9.5" />
     </svg>
   );
 }
@@ -639,18 +649,21 @@ function CustomTimerDial({
   return (
     <motion.div
       className="custom-timer-setup-panel"
-      initial={{ opacity: 0, scale: 0.96 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.96 }}
-      transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+      initial={{ opacity: 0, scale: 0.96, filter: "blur(2px)" }}
+      animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+      exit={{ opacity: 0, scale: 0.94, filter: "blur(4px)" }}
+      transition={{ duration: 0.20, ease: [0.16, 1, 0.3, 1] }}
     >
       {/* Top Header Row */}
       <div className="timer-setup-header" onPointerDown={(e) => e.stopPropagation()}>
-        <button className="timer-nav-btn" onClick={onBackToTools} title="Back to Quick Tools">
-          <span>✦ Tools</span>
+        <button className="timer-nav-btn timer-back-btn" onClick={onBackToTools} title="Back to Quick Tools" aria-label="Back to Tools">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" className="timer-back-arrow">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          <span>Tools</span>
         </button>
         <span className="timer-setup-title">Set Timer</span>
-        <button className="timer-nav-btn timer-min-btn" onClick={onClose} title="Close">
+        <button className="timer-min-btn" onClick={onClose} title="Close (Esc)" aria-label="Close">
           <CloseIcon />
         </button>
       </div>
@@ -708,6 +721,7 @@ function CustomTimerDial({
           onClick={() => onStart(currentMinutesRef.current)}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.94 }}
+          transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
         >
           Start Timer
         </motion.button>
@@ -937,7 +951,7 @@ export function App() {
     });
 
     const removeStartCollapse = api.window.onStartCollapse(() => {
-      setState("collapsing");
+      triggerCollapse();
     });
 
     const removeBlurred = api.window.onBlurred(() => {
@@ -961,8 +975,126 @@ export function App() {
     };
   }, [isExpanded]);
 
-  // Click-through pass-through: Only the notch surface is clickable.
-  // All transparent background areas pass clicks through to background apps (browser tabs, desktop, etc.)
+  const [isFavorite, setIsFavorite] = useState(false);
+
+  const switchTab = (tab: "music" | "shelf" | "tools" | "timer") => {
+    setActiveTab(tab);
+    if (isExpanded) {
+      const h = tab === "shelf" ? 116 : tab === "timer" ? 118 : tab === "music" ? 152 : 48;
+      void window.islet.window.setExpanded(true, h);
+    }
+  };
+
+  const collapseSafetyTimer = useRef<number | null>(null);
+
+  const triggerExpand = useCallback((panelHeight?: number) => {
+    if (stateRef.current === "expanded") return;
+    if (collapseSafetyTimer.current) {
+      clearTimeout(collapseSafetyTimer.current);
+      collapseSafetyTimer.current = null;
+    }
+    setState("expanding");
+    window.islet?.window?.setIgnoreMouseEvents?.(false);
+    const h = panelHeight || (
+      activeTab === "shelf" ? 116 :
+        activeTab === "timer" ? 118 :
+          activeTab === "music" && hasActiveMedia ? 152 : 48
+    );
+    void window.islet.window.setExpanded(true, h).catch((err: unknown) => {
+      console.error("Expand failed:", err);
+      setState("collapsed");
+      window.islet?.window?.setIgnoreMouseEvents?.(true, { forward: true });
+    });
+  }, [activeTab, hasActiveMedia]);
+
+  const triggerCollapse = useCallback(() => {
+    if (stateRef.current === "collapsed" || stateRef.current === "collapsing") return;
+    setState("collapsing");
+
+    if (collapseSafetyTimer.current) clearTimeout(collapseSafetyTimer.current);
+    collapseSafetyTimer.current = window.setTimeout(() => {
+      collapseSafetyTimer.current = null;
+      if (stateRef.current === "collapsing") {
+        setState("collapsed");
+        window.islet?.window?.setIgnoreMouseEvents?.(true, { forward: true });
+        void window.islet?.window?.finishCollapse?.();
+      }
+    }, 450);
+
+    void window.islet.window.collapse().catch((err: unknown) => {
+      console.error("Collapse failed:", err);
+      setState("collapsed");
+      window.islet?.window?.setIgnoreMouseEvents?.(true, { forward: true });
+    });
+  }, []);
+
+  const handleAnimationComplete = useCallback(() => {
+    if (stateRef.current === "expanding") {
+      setState("expanded");
+    } else if (stateRef.current === "collapsing") {
+      if (collapseSafetyTimer.current) {
+        clearTimeout(collapseSafetyTimer.current);
+        collapseSafetyTimer.current = null;
+      }
+      setState("collapsed");
+      window.islet?.window?.setIgnoreMouseEvents?.(true, { forward: true });
+      void window.islet.window.finishCollapse().catch((err: unknown) => {
+        console.error("Finish collapse failed:", err);
+      });
+    }
+  }, []);
+
+  // =========================================================================
+  // Hover to Expand & Smooth Collapse with Debounce & Grace Period
+  // =========================================================================
+  const hoverExpandTimer = useRef<number | null>(null);
+  const hoverCollapseTimer = useRef<number | null>(null);
+  const isHoveredSurfaceRef = useRef(false);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const isDraggingFileRef = useRef(isDraggingFile);
+  isDraggingFileRef.current = isDraggingFile;
+
+  const handleMouseEnter = useCallback(() => {
+    isHoveredSurfaceRef.current = true;
+    if (hoverCollapseTimer.current) {
+      clearTimeout(hoverCollapseTimer.current);
+      hoverCollapseTimer.current = null;
+    }
+    // Expand quickly on hover when collapsed or collapsing
+    if (stateRef.current === "collapsed" || stateRef.current === "collapsing") {
+      if (!hoverExpandTimer.current) {
+        hoverExpandTimer.current = window.setTimeout(() => {
+          hoverExpandTimer.current = null;
+          if (isHoveredSurfaceRef.current) {
+            triggerExpand();
+          }
+        }, 50);
+      }
+    }
+  }, [triggerExpand]);
+
+  const handleMouseLeave = useCallback(() => {
+    isHoveredSurfaceRef.current = false;
+    if (hoverExpandTimer.current) {
+      clearTimeout(hoverExpandTimer.current);
+      hoverExpandTimer.current = null;
+    }
+    // Grace period before collapsing: 180ms so user can comfortably navigate and isn't punished by brief cursor slips
+    if (!hoverCollapseTimer.current) {
+      hoverCollapseTimer.current = window.setTimeout(() => {
+        hoverCollapseTimer.current = null;
+        if (!isHoveredSurfaceRef.current && !isDraggingFileRef.current) {
+          if (stateRef.current === "expanded" || stateRef.current === "expanding") {
+            triggerCollapse();
+          }
+        }
+      }, 180);
+    }
+  }, [triggerCollapse]);
+
+  // Click-through pass-through & hover tracking:
+  // Only the notch surface receives clicks & hover; transparent window background passes through clicks to underlying apps
   useEffect(() => {
     const api = window.islet;
     if (!api?.window?.setIgnoreMouseEvents) return;
@@ -978,14 +1110,6 @@ export function App() {
       scheduled = false;
       if (!latestE) return;
 
-      if (drag.current.active) {
-        if (!isOverNotch) {
-          isOverNotch = true;
-          api.window.setIgnoreMouseEvents(false);
-        }
-        return;
-      }
-
       const surface = document.querySelector(".islet-notch-surface");
       if (!surface) return;
       const rect = surface.getBoundingClientRect();
@@ -1000,8 +1124,11 @@ export function App() {
         isOverNotch = over;
         if (over) {
           api.window.setIgnoreMouseEvents(false);
+          handleMouseEnter();
         } else {
-          api.window.setIgnoreMouseEvents(true, { forward: true });
+          // Keep mouse events enabled during collapse so no window blur/snapping occurs!
+          // setIgnoreMouseEvents(true) will be called upon animation completion.
+          handleMouseLeave();
         }
       }
     };
@@ -1014,119 +1141,23 @@ export function App() {
       }
     };
 
-    const handleMouseLeave = () => {
-      if (!drag.current.active && isOverNotch) {
+    const handleWindowLeave = () => {
+      if (isOverNotch) {
         isOverNotch = false;
-        api.window.setIgnoreMouseEvents(true, { forward: true });
+        handleMouseLeave();
       }
     };
 
     window.addEventListener("mousemove", handleMouseMove, { passive: true });
-    window.addEventListener("mouseleave", handleMouseLeave);
-    document.addEventListener("mouseleave", handleMouseLeave);
+    window.addEventListener("mouseleave", handleWindowLeave);
+    document.addEventListener("mouseleave", handleWindowLeave);
 
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseleave", handleMouseLeave);
-      document.removeEventListener("mouseleave", handleMouseLeave);
+      window.removeEventListener("mouseleave", handleWindowLeave);
+      document.removeEventListener("mouseleave", handleWindowLeave);
     };
-  }, []);
-
-  const [isFavorite, setIsFavorite] = useState(false);
-
-  const switchTab = (tab: "music" | "shelf" | "tools" | "timer") => {
-    setActiveTab(tab);
-    if (isExpanded) {
-      const h = tab === "shelf" ? 116 : tab === "timer" ? 118 : tab === "music" ? 152 : 48;
-      void window.islet.window.setExpanded(true, h);
-    }
-  };
-
-  const triggerExpand = (panelHeight?: number) => {
-    if (state !== "collapsed") return;
-    setState("expanding");
-    const h = panelHeight || (
-      activeTab === "shelf" ? 116 :
-        activeTab === "timer" ? 118 :
-          activeTab === "music" && hasActiveMedia ? 152 : 48
-    );
-    void window.islet.window.setExpanded(true, h).catch((err: unknown) => {
-      console.error("Expand failed:", err);
-      setState("collapsed");
-    });
-  };
-
-  const triggerCollapse = () => {
-    if (state === "collapsed" || state === "collapsing") return;
-    setState("collapsing");
-    void window.islet.window.collapse().catch((err: unknown) => {
-      console.error("Collapse failed:", err);
-      setState("collapsed");
-    });
-  };
-
-  const handleAnimationComplete = () => {
-    if (state === "expanding") {
-      setState("expanded");
-    } else if (state === "collapsing") {
-      setState("collapsed");
-      void window.islet.window.finishCollapse().catch((err: unknown) => {
-        console.error("Finish collapse failed:", err);
-      });
-    }
-  };
-
-  const onPointerDown = (event: React.PointerEvent<HTMLElement>) => {
-    if (event.button !== 0) return;
-    const target = event.target as HTMLElement;
-    if (target.closest("button, a, input, [role='button'], .shelf-image-card")) return;
-
-    event.currentTarget.setPointerCapture(event.pointerId);
-    drag.current = {
-      active: true,
-      moved: false,
-      startX: event.screenX,
-      startY: event.screenY,
-      pointerId: event.pointerId,
-      frame: null
-    };
-    latestPoint.current = { screenX: event.screenX, screenY: event.screenY };
-    void window.islet.window.beginDrag(latestPoint.current).catch((err: unknown) => console.error("Drag start:", err));
-  };
-
-  const onPointerMove = (event: React.PointerEvent<HTMLElement>) => {
-    if (!drag.current.active || drag.current.pointerId !== event.pointerId) return;
-    const dist = Math.hypot(event.screenX - drag.current.startX, event.screenY - drag.current.startY);
-    if (dist > 3) {
-      drag.current.moved = true;
-    }
-    if (!drag.current.moved) return;
-
-    latestPoint.current = { screenX: event.screenX, screenY: event.screenY };
-    if (drag.current.frame === null) {
-      drag.current.frame = requestAnimationFrame(() => {
-        drag.current.frame = null;
-        void window.islet.window.moveDrag(latestPoint.current).catch((err: unknown) => console.error("Drag move:", err));
-      });
-    }
-  };
-
-  const onPointerUp = (event: React.PointerEvent<HTMLElement>) => {
-    if (!drag.current.active || drag.current.pointerId !== event.pointerId) return;
-    if (drag.current.frame !== null) cancelAnimationFrame(drag.current.frame);
-    const wasMoved = drag.current.moved;
-    drag.current.active = false;
-
-    if (wasMoved) {
-      void window.islet.window.endDrag().catch((err: unknown) => console.error("Drag end:", err));
-    } else {
-      if (!isExpanded) {
-        triggerExpand();
-      } else {
-        triggerCollapse();
-      }
-    }
-  };
+  }, [handleMouseEnter, handleMouseLeave]);
 
   const handlePlayPause = (e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -1349,7 +1380,13 @@ export function App() {
       onDrop={handleDrop}
     >
       <motion.main
-        className={`islet-notch-surface ${isExpanded ? "mode-expanded" : "mode-collapsed"} ${isCollapsing ? "mode-collapsing" : ""} ${isDraggingFile ? "notch-drop-active" : ""}`}
+        className={`islet-notch-surface ${
+          state === "expanded" || state === "expanding"
+            ? "mode-expanded"
+            : state === "collapsing"
+            ? "mode-collapsing"
+            : "mode-collapsed"
+        } ${isDraggingFile ? "notch-drop-active" : ""}`}
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{
           opacity: 1,
@@ -1364,19 +1401,13 @@ export function App() {
         exit={{ opacity: 0, scale: 0.95 }}
         transition={{
           type: "spring",
-          stiffness: 440,
-          damping: 34,
-          mass: 0.55
+          stiffness: 350,
+          damping: 32,
+          mass: 0.65
         }}
         onAnimationComplete={handleAnimationComplete}
-        onMouseEnter={() => {
-          window.islet?.window.setIgnoreMouseEvents?.(false);
-        }}
-        onMouseLeave={() => {
-          if (!drag.current.active) {
-            window.islet?.window.setIgnoreMouseEvents?.(true, { forward: true });
-          }
-        }}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
       >
         {/* Dragging over indicator — Smooth Framer Motion */}
         <AnimatePresence>
@@ -1423,18 +1454,13 @@ export function App() {
               <motion.div
                 key="expanded-shelf"
                 className="expanded-shelf-panel"
-                initial={{ opacity: 0, scale: 0.96 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.96 }}
-                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                initial={{ opacity: 0, scale: 0.96, filter: "blur(2px)" }}
+                animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                exit={{ opacity: 0, scale: 0.94, filter: "blur(4px)" }}
+                transition={{ duration: 0.20, ease: [0.16, 1, 0.3, 1] }}
               >
                 {/* Header */}
-                <div
-                  className="shelf-header drag-handle"
-                  onPointerDown={onPointerDown}
-                  onPointerMove={onPointerMove}
-                  onPointerUp={onPointerUp}
-                >
+                <div className="shelf-header">
                   <div className="shelf-title-wrap" onPointerDown={(e) => e.stopPropagation()}>
                     <span className="shelf-brand">Saved Files</span>
                     <span className="shelf-count-tag">
@@ -1542,14 +1568,11 @@ export function App() {
                    ================================================================= */
                 <motion.div
                   key="expanded-timer-running"
-                  className="expanded-timer-panel drag-handle"
-                  initial={{ opacity: 0, scale: 0.96 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.96 }}
-                  transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                  onPointerDown={onPointerDown}
-                  onPointerMove={onPointerMove}
-                  onPointerUp={onPointerUp}
+                  className="expanded-timer-panel"
+                  initial={{ opacity: 0, scale: 0.96, filter: "blur(2px)" }}
+                  animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, scale: 0.94, filter: "blur(4px)" }}
+                  transition={{ duration: 0.20, ease: [0.16, 1, 0.3, 1] }}
                 >
                   {/* Dynamic Island Animated Perimeter Progress Contour (Screenshot 2 replica) */}
                   <svg
@@ -1582,11 +1605,15 @@ export function App() {
                   <div className="timer-header-row" onPointerDown={(e) => e.stopPropagation()}>
                     <div className="timer-header-left">
                       <button
-                        className="timer-nav-btn"
+                        className="timer-nav-btn timer-back-btn"
                         onClick={() => switchTab("tools")}
                         title="Back to Quick Tools"
+                        aria-label="Back to Tools"
                       >
-                        <span>✦ Tools</span>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" className="timer-back-arrow">
+                          <polyline points="15 18 9 12 15 6" />
+                        </svg>
+                        <span>Tools</span>
                       </button>
                       {hasActiveMedia && media && (
                         <button
@@ -1594,14 +1621,17 @@ export function App() {
                           onClick={() => switchTab("music")}
                           title={`Switch to: ${media.title}`}
                         >
-                          <span>♫ Song</span>
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: 2 }}>
+                            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                          </svg>
+                          <span>Song</span>
                         </button>
                       )}
                     </div>
 
                     {/* Minimize / Close */}
                     <button
-                      className="timer-nav-btn timer-min-btn"
+                      className="timer-min-btn"
                       onClick={triggerCollapse}
                       title="Minimize to capsule (Esc)"
                       aria-label="Minimize"
@@ -1618,6 +1648,7 @@ export function App() {
                       title={isTimerRunning ? "Pause timer" : "Resume timer"}
                       whileHover={{ scale: 1.06 }}
                       whileTap={{ scale: 0.94 }}
+                      transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
                     >
                       {isTimerRunning ? (
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="white">
@@ -1652,6 +1683,7 @@ export function App() {
                       title="Cancel & Reset Timer"
                       whileHover={{ scale: 1.06 }}
                       whileTap={{ scale: 0.94 }}
+                      transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
                     >
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ff453a" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
                         <line x1="17" y1="7" x2="7" y2="17" />
@@ -1667,14 +1699,11 @@ export function App() {
                  ================================================================= */
               <motion.div
                 key="expanded-music"
-                className="expanded-music-panel drag-handle"
-                initial={{ opacity: 0, scale: 0.96 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.96 }}
-                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
-                onPointerUp={onPointerUp}
+                className="expanded-music-panel"
+                initial={{ opacity: 0, scale: 0.96, filter: "blur(2px)" }}
+                animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                exit={{ opacity: 0, scale: 0.94, filter: "blur(4px)" }}
+                transition={{ duration: 0.20, ease: [0.16, 1, 0.3, 1] }}
               >
                 {/* Top Row: [52px Artwork] [Title & Artist] [SoundWave / Minimize] */}
                 <div className="expanded-music-top-row">
@@ -1747,6 +1776,7 @@ export function App() {
                     title={isFavorite ? "Favorited" : "Favorite"}
                     whileHover={{ scale: 1.15 }}
                     whileTap={{ scale: 0.88 }}
+                    transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
                   >
                     <StarSvg filled={isFavorite} />
                   </motion.button>
@@ -1759,6 +1789,7 @@ export function App() {
                       aria-label="Previous"
                       whileHover={{ scale: 1.15 }}
                       whileTap={{ scale: 0.88 }}
+                      transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
                     >
                       <ApplePrevIcon />
                     </motion.button>
@@ -1770,6 +1801,7 @@ export function App() {
                       aria-label={isPlaying ? "Pause" : "Play"}
                       whileHover={{ scale: 1.15 }}
                       whileTap={{ scale: 0.88 }}
+                      transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
                     >
                       {isPlaying ? <ApplePauseIcon /> : <ApplePlayIcon />}
                     </motion.button>
@@ -1781,6 +1813,7 @@ export function App() {
                       aria-label="Next"
                       whileHover={{ scale: 1.15 }}
                       whileTap={{ scale: 0.88 }}
+                      transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
                     >
                       <AppleNextIcon />
                     </motion.button>
@@ -1791,6 +1824,7 @@ export function App() {
                     title={`Output: ${media.source ? media.source.toUpperCase() : "Audio Output"}`}
                     whileHover={{ scale: 1.15 }}
                     whileTap={{ scale: 0.88 }}
+                    transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
                   >
                     <AirPlayDeviceIcon />
                   </motion.button>
@@ -1802,14 +1836,11 @@ export function App() {
                  ================================================================= */
               <motion.div
                 key="expanded-quick-tools"
-                className="expanded-quickbar-panel drag-handle"
-                initial={{ opacity: 0, scale: 0.96 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.96 }}
-                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
-                onPointerUp={onPointerUp}
+                className="expanded-quickbar-panel"
+                initial={{ opacity: 0, scale: 0.96, filter: "blur(2px)" }}
+                animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                exit={{ opacity: 0, scale: 0.94, filter: "blur(4px)" }}
+                transition={{ duration: 0.20, ease: [0.16, 1, 0.3, 1] }}
               >
                 {/* Brand Logo */}
                 <div className="quickbar-brand" onPointerDown={(e) => e.stopPropagation()}>
@@ -1842,6 +1873,7 @@ export function App() {
                     }}
                     whileHover={{ scale: 1.15, y: -1 }}
                     whileTap={{ scale: 0.9 }}
+                    transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
                   >
                     <span className="quick-icon-svg"><TimerSvg /></span>
                     {isTimerActiveSession && (
@@ -1856,6 +1888,7 @@ export function App() {
                     title="Screen Time: 2h 45m today"
                     whileHover={{ scale: 1.15, y: -1 }}
                     whileTap={{ scale: 0.9 }}
+                    transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
                   >
                     <span className="quick-icon-svg"><ScreenTimeSvg /></span>
                   </motion.button>
@@ -1868,6 +1901,7 @@ export function App() {
                     onClick={() => setIsFocusOn((prev) => !prev)}
                     whileHover={{ scale: 1.15, y: -1 }}
                     whileTap={{ scale: 0.9 }}
+                    transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
                   >
                     <span className="quick-icon-svg"><FocusSvg /></span>
                     {isFocusOn && <span className="focus-indicator-dot" />}
@@ -1893,29 +1927,20 @@ export function App() {
                ================================================================= */
             <motion.div
               key="collapsed-timer"
-              className="capsule-timer-bar drag-handle"
+              className="capsule-timer-bar"
               initial={{ opacity: 0, scale: 0.94 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.94 }}
-              transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-              onPointerDown={(event) => {
+              whileHover={{ scale: 1.02 }}
+              transition={{
+                scale: { type: "spring", stiffness: 400, damping: 25 },
+                opacity: { duration: 0.22, delay: 0.08, ease: [0.16, 1, 0.3, 1] }
+              }}
+              onClick={() => {
                 setActiveTab("timer");
-                onPointerDown(event);
+                triggerExpand(118);
               }}
-              onPointerMove={onPointerMove}
-              onPointerUp={(event) => {
-                if (!drag.current.active || drag.current.pointerId !== event.pointerId) return;
-                if (drag.current.frame !== null) cancelAnimationFrame(drag.current.frame);
-                const wasMoved = drag.current.moved;
-                drag.current.active = false;
-                if (wasMoved) {
-                  void window.islet.window.endDrag().catch((err: unknown) => console.error("Drag end:", err));
-                } else if (!isExpanded) {
-                  setActiveTab("timer");
-                  triggerExpand(118);
-                }
-              }}
-              title="Timer running — Click to expand"
+              title="Timer active — Hover to expand"
             >
               <div className="collapsed-timer-left">
                 <svg width="20" height="20" viewBox="0 0 20 20" className="collapsed-timer-ring">
@@ -1946,18 +1971,20 @@ export function App() {
                ================================================================= */
             <motion.div
               key="collapsed-music"
-              className="capsule-music-bar drag-handle"
+              className="capsule-music-bar"
               initial={{ opacity: 0, scale: 0.94 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.94 }}
-              transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-              onPointerDown={(e) => {
-                setActiveTab("music");
-                onPointerDown(e);
+              whileHover={{ scale: 1.015 }}
+              transition={{
+                scale: { type: "spring", stiffness: 400, damping: 25 },
+                opacity: { duration: 0.22, delay: 0.08, ease: [0.16, 1, 0.3, 1] }
               }}
-              onPointerMove={onPointerMove}
-              onPointerUp={onPointerUp}
-              title="Click to expand music player (Ctrl+Alt+Space)"
+              onClick={() => {
+                setActiveTab("music");
+                triggerExpand(152);
+              }}
+              title="Music playing — Hover to expand"
             >
               {/* Left: Square Album Artwork */}
               <div className="capsule-art-wrap">
@@ -1997,6 +2024,7 @@ export function App() {
                 aria-label={isPlaying ? "Pause" : "Play"}
                 whileHover={{ scale: 1.08 }}
                 whileTap={{ scale: 0.92 }}
+                transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
                 onPointerDown={(e) => e.stopPropagation()}
               >
                 {isPlaying ? (
@@ -2031,15 +2059,19 @@ export function App() {
                ================================================================= */
             <motion.div
               key="collapsed-idle"
-              className="capsule-idle-bar drag-handle"
+              className="capsule-idle-bar"
               initial={{ opacity: 0, scale: 0.94 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.94 }}
-              transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-              onPointerDown={onPointerDown}
-              onPointerMove={onPointerMove}
-              onPointerUp={onPointerUp}
-              title="Click to expand (Ctrl+Alt+Space)"
+              whileHover={{ scale: 1.02 }}
+              transition={{
+                scale: { type: "spring", stiffness: 400, damping: 25 },
+                opacity: { duration: 0.22, delay: 0.08, ease: [0.16, 1, 0.3, 1] }
+              }}
+              onClick={() => {
+                triggerExpand();
+              }}
+              title="Dynamic Island — Hover to expand"
             >
               <div className="idle-left">
                 <span className="idle-time">{time.hoursMinutes}</span>
