@@ -120,6 +120,9 @@ const api: IsletApi = {
     startDrag: (filePath: string) => {
       ipcRenderer.send("shelf:start-drag", filePath);
     }
+  },
+  screentime: {
+    get: () => ipcRenderer.invoke("screentime:get")
   }
 };
 

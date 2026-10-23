@@ -15,6 +15,7 @@ import type {
 } from "./ipc.js";
 
 import { MediaService } from "./media-service.js";
+import { ScreenTimeService } from "./screentime-service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 protocol.registerSchemesAsPrivileged([
@@ -65,6 +66,7 @@ export const log = (message: string, error?: unknown) => {
 };
 
 const mediaService = new MediaService(log);
+const screenTimeService = new ScreenTimeService();
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let expanded = false;
@@ -888,6 +890,10 @@ const registerIpc = () => {
       log("[shelf:start-drag] Error starting native drag:", err);
     }
   });
+
+  ipcMain.handle("screentime:get", async () => {
+    return screenTimeService.getScreenTimeData();
+  });
 };
 
 app.whenReady().then(() => {
@@ -989,6 +995,7 @@ app.on("second-instance", () => {
 
 app.on("will-quit", () => {
   mediaService.stop();
+  screenTimeService.destroy();
   globalShortcut.unregisterAll();
   tray?.destroy();
   log("Islet quitting");

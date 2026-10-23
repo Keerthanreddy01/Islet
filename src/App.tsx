@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { MediaState } from "../electron/ipc";
+import type { MediaState, ScreenTimeData } from "../electron/ipc";
 import appLogo from "../logo.png";
 
 const artworkMemoryCache = new Map<string, string>();
@@ -877,6 +877,53 @@ function ScreenTimeRadarIcon() {
   );
 }
 
+const getInitialScreenTimeData = (): ScreenTimeData => {
+  const now = new Date();
+  const dayNames = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+  const d2 = new Date(now);
+  d2.setDate(now.getDate() - 2);
+  const d1 = new Date(now);
+  d1.setDate(now.getDate() - 1);
+
+  const formatDate = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  return {
+    todayMinutes: 360,
+    todayFormatted: "6h 00m",
+    deltaMinutes: 0,
+    deltaFormatted: "+0m",
+    isAboveAverage: true,
+    averageMinutes: 480,
+    averageFormatted: "8H 00M",
+    days: [
+      {
+        day: dayNames[d2.getDay()],
+        date: formatDate(d2),
+        minutes: 420,
+        formattedTime: "7h 00m",
+        isToday: false
+      },
+      {
+        day: dayNames[d1.getDay()],
+        date: formatDate(d1),
+        minutes: 460,
+        formattedTime: "7h 40m",
+        isToday: false
+      },
+      {
+        day: dayNames[now.getDay()],
+        date: formatDate(now),
+        minutes: 360,
+        formattedTime: "6h 00m",
+        isToday: true
+      }
+    ],
+    maxScaleHours: 12,
+    avgPercent: 66.6
+  };
+};
+
 interface ScreenTimePanelProps {
   onBackToTools: () => void;
   onClose: () => void;
@@ -887,6 +934,39 @@ interface ScreenTimePanelProps {
 
 function ScreenTimePanel({ onBackToTools, onClose, onSwitchToMusic, hasActiveMedia, songTitle }: ScreenTimePanelProps) {
   const [hoveredDay, setHoveredDay] = useState<string | null>(null);
+  const [data, setData] = useState<ScreenTimeData>(getInitialScreenTimeData);
+
+  useEffect(() => {
+    let active = true;
+
+    const fetchScreenTime = async () => {
+      try {
+        if (window.islet?.screentime?.get) {
+          const res = await window.islet.screentime.get();
+          if (active && res) {
+            setData(res);
+          }
+        }
+      } catch (err) {
+        console.warn("[ScreenTime] Failed to fetch screen time:", err);
+      }
+    };
+
+    fetchScreenTime();
+    const timer = setInterval(fetchScreenTime, 20000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+  const maxScaleHours = data.maxScaleHours || 12;
+  const totalScaleMinutes = maxScaleHours * 60;
+  const avgPercent = data.avgPercent || ((data.averageMinutes / totalScaleMinutes) * 100);
+
+  // Dynamic 4 scale ticks: 0, 1/4, 2/4, 3/4 of maxScaleHours (e.g. 0, 3, 6, 9 or 0, 4, 8, 12)
+  const tickStep = Math.max(2, Math.round(maxScaleHours / 4));
+  const tickValues = [0, tickStep, tickStep * 2, tickStep * 3];
 
   return (
     <motion.div
@@ -895,7 +975,7 @@ function ScreenTimePanel({ onBackToTools, onClose, onSwitchToMusic, hasActiveMed
       initial={{ opacity: 0, scale: 0.96, filter: "blur(2px)" }}
       animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
       exit={{ opacity: 0, scale: 0.94, filter: "blur(4px)" }}
-      transition={{ duration: 0.20, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
     >
       {/* Top Nav Row */}
       <div className="screentime-nav-row" onPointerDown={(e) => e.stopPropagation()}>
@@ -948,16 +1028,29 @@ function ScreenTimePanel({ onBackToTools, onClose, onSwitchToMusic, hasActiveMed
 
       {/* Screen Time Card Content */}
       <div className="screentime-card-content" onPointerDown={(e) => e.stopPropagation()}>
-        {/* Header Row: [Radar Icon] [9h 40m] [+219m] ... [AVG 7H 31M] */}
+        {/* Header Row: [Radar Icon] [Real Today Time] [Real Delta] ... [AVG Real Average] */}
         <div className="screentime-header-row">
           <div className="screentime-header-left">
             <ScreenTimeRadarIcon />
-            <span className="screentime-big-time">9h 40m</span>
-            <span className="screentime-delta-badge">+219m</span>
+            <span className="screentime-big-time">{data.todayFormatted}</span>
+            <span
+              className="screentime-delta-badge"
+              style={
+                !data.isAboveAverage
+                  ? {
+                      background: "rgba(48, 209, 88, 0.18)",
+                      color: "#30d158",
+                      boxShadow: "none"
+                    }
+                  : undefined
+              }
+            >
+              {data.deltaFormatted}
+            </span>
           </div>
           <div className="screentime-header-right">
             <span className="screentime-avg-label">
-              AVG <span className="screentime-avg-val">7H 31M</span>
+              AVG <span className="screentime-avg-val">{data.averageFormatted}</span>
             </span>
           </div>
         </div>
@@ -965,100 +1058,108 @@ function ScreenTimePanel({ onBackToTools, onClose, onSwitchToMusic, hasActiveMed
         {/* Chart Rows & Axis */}
         <div className="screentime-chart-container">
           <div className="screentime-rows-list">
-            {/* TUE */}
-            <div
-              className={`screentime-bar-row ${hoveredDay === "TUE" ? "is-hovered" : ""}`}
-              onMouseEnter={() => setHoveredDay("TUE")}
-              onMouseLeave={() => setHoveredDay(null)}
-              title="Tuesday: 6h 48m"
-            >
-              <span className="screentime-day-label">TUE</span>
-              <div className="screentime-track-wrapper">
-                <div className="screentime-grid-line" style={{ left: "26.1%" }} />
-                <div className="screentime-grid-line" style={{ left: "52.2%" }} />
-                <div className="screentime-grid-line" style={{ left: "78.3%" }} />
-                <div className="screentime-overtime-zone" style={{ left: "65.4%" }} />
-                <div className="screentime-avg-marker-line" style={{ left: "65.4%" }} />
-                <motion.div
-                  className="screentime-bar-gray"
-                  initial={{ width: 0 }}
-                  animate={{ width: "59.1%" }}
-                  transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1], delay: 0.05 }}
-                />
-              </div>
-            </div>
+            {data.days.map((d, index) => {
+              const isToday = d.isToday;
+              const isOvertime = d.minutes > data.averageMinutes;
+              const dayPercent = Math.min(100, (d.minutes / totalScaleMinutes) * 100);
 
-            {/* WED */}
-            <div
-              className={`screentime-bar-row ${hoveredDay === "WED" ? "is-hovered" : ""}`}
-              onMouseEnter={() => setHoveredDay("WED")}
-              onMouseLeave={() => setHoveredDay(null)}
-              title="Wednesday: 5h 18m"
-            >
-              <span className="screentime-day-label">WED</span>
-              <div className="screentime-track-wrapper">
-                <div className="screentime-grid-line" style={{ left: "26.1%" }} />
-                <div className="screentime-grid-line" style={{ left: "52.2%" }} />
-                <div className="screentime-grid-line" style={{ left: "78.3%" }} />
-                <div className="screentime-overtime-zone" style={{ left: "65.4%" }} />
-                <div className="screentime-avg-marker-line" style={{ left: "65.4%" }} />
-                <motion.div
-                  className="screentime-bar-gray"
-                  initial={{ width: 0 }}
-                  animate={{ width: "46.1%" }}
-                  transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1], delay: 0.10 }}
-                />
-              </div>
-            </div>
+              const tooltip = isToday
+                ? `${d.day} (Today): ${d.formattedTime} (${data.deltaFormatted} vs avg)`
+                : `${d.day}: ${d.formattedTime}`;
 
-            {/* THU (Today) */}
-            <div
-              className={`screentime-bar-row ${hoveredDay === "THU" ? "is-hovered" : ""}`}
-              onMouseEnter={() => setHoveredDay("THU")}
-              onMouseLeave={() => setHoveredDay(null)}
-              title="Thursday (Today): 9h 40m (+219m above avg)"
-            >
-              <span className="screentime-day-label" style={{ color: "#ffffff" }}>THU</span>
-              <div className="screentime-track-wrapper">
-                <div className="screentime-grid-line" style={{ left: "26.1%" }} />
-                <div className="screentime-grid-line" style={{ left: "52.2%" }} />
-                <div className="screentime-grid-line" style={{ left: "78.3%" }} />
-                <div className="screentime-overtime-zone" style={{ left: "65.4%" }} />
-                <div className="screentime-avg-marker-line" style={{ left: "65.4%" }} />
-                <div className="screentime-segmented-bar">
-                  <motion.div
-                    className="screentime-bar-white"
-                    initial={{ width: 0 }}
-                    animate={{ width: "65.4%" }}
-                    transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1], delay: 0.15 }}
-                  />
-                  <motion.div
-                    className="screentime-bar-green"
-                    initial={{ width: 0 }}
-                    animate={{ width: "18.7%" }}
-                    transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1], delay: 0.22 }}
-                  />
+              return (
+                <div
+                  key={d.day + d.date}
+                  className={`screentime-bar-row ${hoveredDay === d.day ? "is-hovered" : ""}`}
+                  onMouseEnter={() => setHoveredDay(d.day)}
+                  onMouseLeave={() => setHoveredDay(null)}
+                  title={tooltip}
+                >
+                  <span
+                    className="screentime-day-label"
+                    style={isToday ? { color: "#ffffff" } : undefined}
+                  >
+                    {d.day}
+                  </span>
+                  <div className="screentime-track-wrapper">
+                    {tickValues.filter((t) => t > 0).map((t) => (
+                      <div
+                        key={t}
+                        className="screentime-grid-line"
+                        style={{ left: `${((t / maxScaleHours) * 100).toFixed(1)}%` }}
+                      />
+                    ))}
+                    <div
+                      className="screentime-overtime-zone"
+                      style={{ left: `${avgPercent.toFixed(1)}%` }}
+                    />
+                    <div
+                      className="screentime-avg-marker-line"
+                      style={{ left: `${avgPercent.toFixed(1)}%` }}
+                    />
+
+                    {!isToday ? (
+                      <motion.div
+                        className="screentime-bar-gray"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${dayPercent.toFixed(1)}%` }}
+                        transition={{
+                          duration: 0.45,
+                          ease: [0.16, 1, 0.3, 1],
+                          delay: 0.05 + index * 0.05
+                        }}
+                      />
+                    ) : (
+                      <div className="screentime-segmented-bar">
+                        <motion.div
+                          className="screentime-bar-white"
+                          initial={{ width: 0 }}
+                          animate={{
+                            width: `${(isOvertime ? avgPercent : dayPercent).toFixed(1)}%`
+                          }}
+                          style={{
+                            borderRadius: isOvertime && dayPercent > avgPercent ? "2px 0 0 2px" : "2px"
+                          }}
+                          transition={{
+                            duration: 0.45,
+                            ease: [0.16, 1, 0.3, 1],
+                            delay: 0.15
+                          }}
+                        />
+                        {isOvertime && (
+                          <motion.div
+                            className="screentime-bar-green"
+                            initial={{ width: 0 }}
+                            animate={{
+                              width: `${Math.min(100 - avgPercent, dayPercent - avgPercent).toFixed(1)}%`
+                            }}
+                            transition={{
+                              duration: 0.45,
+                              ease: [0.16, 1, 0.3, 1],
+                              delay: 0.22
+                            }}
+                          />
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </div>
+              );
+            })}
           </div>
 
-          {/* Bottom Scale Axis: 0, 3, 6, 9 */}
+          {/* Dynamic Bottom Scale Axis: e.g. 0, 3, 6, 9 or 0, 4, 8, 12 */}
           <div className="screentime-axis-row">
             <div className="screentime-axis-spacer" />
             <div className="screentime-axis-ticks">
-              <div className="screentime-tick" style={{ left: "0%" }}>
-                <span className="tick-label">0</span>
-              </div>
-              <div className="screentime-tick" style={{ left: "26.1%" }}>
-                <span className="tick-label">3</span>
-              </div>
-              <div className="screentime-tick" style={{ left: "52.2%" }}>
-                <span className="tick-label">6</span>
-              </div>
-              <div className="screentime-tick" style={{ left: "78.3%" }}>
-                <span className="tick-label">9</span>
-              </div>
+              {tickValues.map((t) => {
+                const leftPct = (t / maxScaleHours) * 100;
+                return (
+                  <div key={t} className="screentime-tick" style={{ left: `${leftPct.toFixed(1)}%` }}>
+                    <span className="tick-label">{t}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -2239,7 +2340,7 @@ export function App() {
                   <motion.button
                     id="qi-screentime"
                     className="quick-icon-btn"
-                    title="Screen Time: 9h 40m today"
+                    title="Screen Time"
                     onClick={() => {
                       switchTab("screentime");
                     }}

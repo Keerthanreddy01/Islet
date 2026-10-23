@@ -12,6 +12,27 @@ export type MediaState = {
   lastUpdatedMs?: number;
 };
 
+export type ScreenTimeDay = {
+  day: string; // e.g. "WED", "THU", "FRI"
+  date: string; // "2026-10-23"
+  minutes: number;
+  formattedTime: string; // "6h 01m"
+  isToday: boolean;
+};
+
+export type ScreenTimeData = {
+  todayMinutes: number;
+  todayFormatted: string; // "6h 01m"
+  deltaMinutes: number;
+  deltaFormatted: string; // "-4h 36m" or "+45m"
+  isAboveAverage: boolean;
+  averageMinutes: number;
+  averageFormatted: string; // "10H 38M"
+  days: ScreenTimeDay[]; // [day-2, yesterday, today]
+  maxScaleHours: number;
+  avgPercent: number; // 0-100%
+};
+
 export type Timer = {
   id: string;
   kind: "countdown" | "stopwatch" | "pomodoro";
@@ -161,5 +182,8 @@ export type IsletApi = {
     saveTempImage(name: string, buffer: ArrayBuffer, originalPath?: string): Promise<{ filePath: string }>;
     copyImage(filePath?: string, dataUrl?: string): Promise<boolean>;
     startDrag(filePath: string): void;
+  };
+  screentime: {
+    get(): Promise<ScreenTimeData>;
   };
 };
