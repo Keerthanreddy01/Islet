@@ -64,7 +64,56 @@ async function fetchOnlineArtwork(title: string, artist: string): Promise<string
   return null;
 }
 
-// Resilient Album Artwork Component with High-Res iTunes Resolver & Vinyl Fallback
+// Official YouTube Play Logo Artwork Component
+function YouTubeLogoArtwork({
+  size = 32,
+  className = ""
+}: {
+  size?: number;
+  className?: string;
+}) {
+  const isExpanded = size > 40;
+  const iconW = isExpanded ? 34 : 22;
+  const iconH = Math.round(iconW * 0.708); // 24:17 aspect ratio
+
+  return (
+    <div
+      className={`youtube-art-wrap ${className}`}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: isExpanded ? 12 : 8,
+        background: "linear-gradient(145deg, #18191f 0%, #0d0f13 100%)",
+        border: "1px solid rgba(255, 255, 255, 0.08)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        boxShadow: isExpanded
+          ? "0 4px 14px rgba(0, 0, 0, 0.5)"
+          : "0 2px 8px rgba(0, 0, 0, 0.45)"
+      }}
+      title="YouTube"
+    >
+      <svg
+        width={iconW}
+        height={iconH}
+        viewBox="0 0 24 17"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        style={{ display: "block" }}
+      >
+        <path
+          d="M23.498 2.686A3.016 3.016 0 0 0 21.376.55C19.505.045 12 .045 12 .045s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 2.686C0 4.57 0 8.5 0 8.5s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 12.43 24 8.5 24 8.5s0-3.93-.502-5.814z"
+          fill="#FF0000"
+        />
+        <polygon points="9.6 12 15.6 8.5 9.6 5" fill="#FFFFFF" />
+      </svg>
+    </div>
+  );
+}
+
+// Resilient Album Artwork Component with High-Res iTunes Resolver, Official YouTube Branding & Vinyl Fallback
 function AlbumArtwork({
   src,
   title,
@@ -80,10 +129,20 @@ function AlbumArtwork({
   className?: string;
   size?: number;
 }) {
+  const isYouTube =
+    source === "youtube" ||
+    Boolean(title && title.toLowerCase().includes("youtube")) ||
+    Boolean(artist && artist.toLowerCase().includes("youtube"));
+
   const [onlineUrl, setOnlineUrl] = useState<string | null>(null);
   const [imgFailed, setImgFailed] = useState(false);
 
-  const isBrowserOrWeb = source === "browser" || source === "youtube" || source === "generic";
+  // For YouTube media, directly render the official YouTube play-logo icon
+  if (isYouTube) {
+    return <YouTubeLogoArtwork size={size} className={className} />;
+  }
+
+  const isBrowserOrWeb = source === "browser" || source === "generic";
 
   useEffect(() => {
     setImgFailed(false);
@@ -1817,6 +1876,13 @@ export function App() {
 
   const isPlaying = media?.status === "playing";
   const isLongMedia = Boolean(media && (media.durationMs >= 3600000 || currentPositionMs >= 3600000));
+  const isYouTubeMedia = Boolean(
+    media && (
+      media.source === "youtube" ||
+      media.title?.toLowerCase().includes("youtube") ||
+      media.artist?.toLowerCase().includes("youtube")
+    )
+  );
   const progressPercent =
     media && media.durationMs > 0
       ? Math.min(100, Math.max(0, (currentPositionMs / media.durationMs) * 100))
@@ -2231,9 +2297,17 @@ export function App() {
                     <span className="expanded-music-title" title={media.title}>
                       {isSwitching ? "" : media.title}
                     </span>
-                    <span className="expanded-music-artist" title={media.artist}>
-                      {isSwitching ? "" : media.artist || "Unknown Artist"}
-                    </span>
+                    {media.artist &&
+                    media.artist !== "Unknown Artist" &&
+                    !media.artist.toLowerCase().includes("youtube") ? (
+                      <span className="expanded-music-artist" title={media.artist}>
+                        {isSwitching ? "" : media.artist}
+                      </span>
+                    ) : !isYouTubeMedia ? (
+                      <span className="expanded-music-artist" title={media.artist}>
+                        {isSwitching ? "" : media.artist || "Unknown Artist"}
+                      </span>
+                    ) : null}
                   </div>
 
                   <div className="expanded-music-top-right" onPointerDown={(e) => e.stopPropagation()}>
@@ -2531,29 +2605,33 @@ export function App() {
                 </span>
               </div>
 
-              {/* Center: Track Title & Artist */}
+              {/* Center: Track Title & Artist (or Video Title only for YouTube) */}
               <div className="capsule-meta">
                 <span className="capsule-title" title={media.title}>
                   {isSwitching ? "" : media.title}
                 </span>
-                <span className="capsule-artist" title={media.artist}>
-                  {isSwitching ? "" : media.artist || "Unknown Artist"}
-                </span>
+                {!isYouTubeMedia && (
+                  <span className="capsule-artist" title={media.artist}>
+                    {isSwitching ? "" : media.artist || "Unknown Artist"}
+                  </span>
+                )}
               </div>
 
-              {/* Far Right: Circular App Source Badge (Spotify, Apple Music, YouTube) */}
-              <div
-                className="capsule-source-badge"
-                title={
-                  media.source === "spotify"
-                    ? "Spotify"
-                    : media.source === "apple-music"
-                    ? "Apple Music"
-                    : "YouTube"
-                }
-              >
-                <MediaSourceBadge source={media.source} size={24} />
-              </div>
+              {/* Far Right: Circular App Source Badge (Spotify, Apple Music — omitted for YouTube) */}
+              {!isYouTubeMedia && (
+                <div
+                  className="capsule-source-badge"
+                  title={
+                    media.source === "spotify"
+                      ? "Spotify"
+                      : media.source === "apple-music"
+                      ? "Apple Music"
+                      : "Media"
+                  }
+                >
+                  <MediaSourceBadge source={media.source} size={24} />
+                </div>
+              )}
             </motion.div>
           ) : (
             /* =================================================================

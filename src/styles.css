@@ -263,12 +263,13 @@ button {
 }
 
 .capsule-art,
-.capsule-art-wrap .art-fallback {
+.capsule-art-wrap .art-fallback,
+.capsule-art-wrap .youtube-art-wrap {
   width: 32px;
   height: 32px;
   border-radius: 8px;
   object-fit: cover;
-  display: block;
+  display: flex;
 }
 
 .art-fallback {
@@ -424,12 +425,13 @@ button {
 }
 
 .expanded-music-art,
-.expanded-music-art-wrap .art-fallback {
+.expanded-music-art-wrap .art-fallback,
+.expanded-music-art-wrap .youtube-art-wrap {
   width: 52px;
   height: 52px;
   border-radius: 12px;
   object-fit: cover;
-  display: block;
+  display: flex;
 }
 
 .expanded-music-info {
