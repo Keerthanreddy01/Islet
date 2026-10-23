@@ -253,15 +253,21 @@ class AntigravityAdapter implements AgentAdapter {
         };
       }
 
-      // Read tail of transcript file (up to 48KB)
-      const tailLines = readTailLines(newestTranscript, 48 * 1024);
+      // Read tail of transcript file (up to 256KB to reliably reach user input)
+      const tailLines = readTailLines(newestTranscript, 256 * 1024);
       if (tailLines.length === 0) return null;
 
       let startedAt: number | undefined;
       let completedAt: number | undefined;
       let status: AgentStatus = "idle";
-      let activityText = "Ready";
-      let taskTitle = "Pair Programming";
+      let activityText = "Thinking";
+      let taskTitle = "Coding Task";
+      let latestToolFound = false;
+
+      const cleanArg = (v: unknown): string => {
+        if (typeof v !== "string") return "";
+        return v.replace(/^["']|["']$/g, "").trim();
+      };
 
       // Scan from bottom up to find the active or last state
       for (let i = tailLines.length - 1; i >= 0; i--) {
@@ -273,61 +279,62 @@ class AntigravityAdapter implements AgentAdapter {
 
           if (entry.type === "USER_INPUT") {
             startedAt = time;
-            if (!taskTitle || taskTitle === "Pair Programming") {
-              const text = typeof entry.content === "string" ? entry.content : "";
-              const clean = text.replace(/<[^>]+>/g, "").trim().split("\n")[0].slice(0, 40);
-              if (clean) taskTitle = clean;
-            }
+            const text = typeof entry.content === "string" ? entry.content : "";
+            const clean = text.replace(/<[^>]+>/g, "").trim().split("\n")[0].slice(0, 45);
+            if (clean) taskTitle = clean;
             if (status === "idle") {
-              // If last event was user input, agent is working
               status = "running";
               activityText = "Thinking";
             }
             break;
           }
 
-          if (entry.type === "PLANNER_RESPONSE") {
+          if (entry.type === "PLANNER_RESPONSE" && !latestToolFound) {
+            latestToolFound = true;
             const toolCalls = entry.tool_calls || [];
             if (toolCalls.length > 0) {
               const lastTool = toolCalls[toolCalls.length - 1];
               const name = lastTool.name;
-              const args = lastTool.args || {};
+              const rawArgs = lastTool.args || {};
 
               if (name === "ask_question") {
                 status = "waiting";
-                activityText = "Waiting for user input";
-              } else if (name === "replace_file_content" || name === "write_to_file") {
+                activityText = "Waiting for input";
+              } else if (name === "replace_file_content" || name === "write_to_file" || name === "multi_replace_file_content") {
                 status = "running";
-                const target = args.TargetFile ? path.basename(args.TargetFile) : "code";
-                activityText = `Editing ${target}`;
+                const target = cleanArg(rawArgs.TargetFile);
+                activityText = `Editing ${target ? path.basename(target) : "file"}`;
+              } else if (name === "view_file") {
+                status = "running";
+                const target = cleanArg(rawArgs.AbsolutePath);
+                activityText = `Viewing ${target ? path.basename(target) : "file"}`;
               } else if (name === "run_command") {
                 status = "running";
-                const cmd = args.CommandLine ? args.CommandLine.trim().split(" ")[0] : "command";
-                activityText = `Running ${cmd}`;
-              } else if (name === "view_file" || name === "grep_search") {
-                status = "running";
-                activityText = "Inspecting code";
+                const cmd = cleanArg(rawArgs.CommandLine).split(" ")[0];
+                activityText = `Running ${cmd ? path.basename(cmd) : "command"}`;
               } else if (name === "browser_subagent") {
                 status = "running";
                 activityText = "Testing in browser";
               } else {
                 status = "running";
-                activityText = lastTool.toolSummary || `Running ${name}`;
+                activityText = lastTool.toolSummary ? cleanArg(lastTool.toolSummary) : `Running ${name}`;
               }
             } else if (entry.status === "DONE") {
-              if (status === "idle") {
-                status = "completed";
-                completedAt = time;
-                activityText = "Task Completed";
-              }
+              status = "completed";
+              completedAt = time;
+              activityText = "Task Completed";
             }
-          } else if (entry.status === "ERROR") {
-            if (status === "idle") {
-              status = "failed";
-              activityText = "Error encountered";
-            }
+          } else if (entry.status === "ERROR" && !latestToolFound) {
+            latestToolFound = true;
+            status = "failed";
+            activityText = "Error encountered";
           }
         } catch {}
+      }
+
+      // Ensure startedAt is populated when running/waiting
+      if (!startedAt && (status === "running" || status === "waiting")) {
+        startedAt = newestMtime - 5000;
       }
 
       // If active turn hasn't finished for more than 10 minutes and no updates, consider idle
@@ -342,6 +349,8 @@ class AntigravityAdapter implements AgentAdapter {
         agentName: "Google Antigravity",
         taskTitle,
         status,
+        activeTool: activityText,
+        statusText: status === "completed" ? "Completed" : status === "waiting" ? "Waiting for Input" : activityText,
         activityText,
         startedAt,
         completedAt,
@@ -501,6 +510,8 @@ class ClaudeCodeAdapter implements AgentAdapter {
         agentName: "Claude Code",
         taskTitle,
         status,
+        activeTool: activityText,
+        statusText: status === "completed" ? "Completed" : activityText,
         activityText,
         startedAt,
         completedAt,
@@ -551,6 +562,8 @@ class CodexAdapter implements AgentAdapter {
         agentName: "OpenAI Codex",
         taskTitle: "Codex Session",
         status: "idle",
+        activeTool: "Ready",
+        statusText: "Ready",
         activityText: "Ready",
         lastUpdatedAt: stat.mtimeMs,
         confidence: 0.75,

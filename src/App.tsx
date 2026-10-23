@@ -3122,8 +3122,8 @@ export function App() {
                   {/* Primary Zone: Agent Activity */}
                   <div className="dual-primary-zone">
                     <AgentBrandIcon agentId={activeAgent?.agentId} size={18} />
-                    <span className={`dual-agent-text is-${activeAgent?.status}`} title={activeAgent?.activeTool || activeAgent?.agentName}>
-                      {activeAgent?.activeTool || activeAgent?.statusText || activeAgent?.agentName}
+                    <span className={`dual-agent-text is-${activeAgent?.status}`} title={activeAgent?.activeTool || activeAgent?.activityText || activeAgent?.agentName}>
+                      {activeAgent?.activeTool || activeAgent?.activityText || activeAgent?.statusText || activeAgent?.agentName}
                     </span>
                     <span className="dual-agent-timer">
                       {formatElapsed(activeAgent?.startedAt)}
@@ -3235,8 +3235,8 @@ export function App() {
             >
               <div className="agent-bar-left">
                 <AgentBrandIcon agentId={activeAgent?.agentId} size={18} />
-                <span className={`agent-bar-text is-${activeAgent?.status}`} title={activeAgent?.activeTool || activeAgent?.agentName}>
-                  {activeAgent?.activeTool || activeAgent?.statusText || "Agent Working"}
+                <span className={`agent-bar-text is-${activeAgent?.status}`} title={activeAgent?.activeTool || activeAgent?.activityText || activeAgent?.agentName}>
+                  {activeAgent?.activeTool || activeAgent?.activityText || activeAgent?.statusText || "Agent Working"}
                 </span>
               </div>
 
