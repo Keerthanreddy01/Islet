@@ -1055,7 +1055,20 @@ function CustomTimerDial({
     rafId.current = requestAnimationFrame(step);
   };
 
+  const endDrag = useCallback(() => {
+    if (!isDragging.current) return;
+    isDragging.current = false;
+
+    // Smooth magnetic snap to the nearest integer minute
+    const nearestM = Math.max(MIN_MINUTES, Math.min(MAX_MINUTES, Math.round((centerOffset - currentX.current) / TICK_SPACING)));
+    targetX.current = centerOffset - nearestM * TICK_SPACING;
+    animateToTarget(() => {
+      onChange(nearestM);
+    });
+  }, [centerOffset, onChange]);
+
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return; // Only drag with primary left mouse button
     e.stopPropagation();
     if (rafId.current !== null) {
       cancelAnimationFrame(rafId.current);
@@ -1065,7 +1078,9 @@ function CustomTimerDial({
       clearTimeout(wheelTimer.current);
       wheelTimer.current = null;
     }
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch { }
     isDragging.current = true;
     dragStartX.current = e.clientX;
     dragStartTrackX.current = currentX.current;
@@ -1073,6 +1088,11 @@ function CustomTimerDial({
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDragging.current) return;
+    // If left mouse button is no longer held down, immediately end drag
+    if (e.buttons === 0) {
+      endDrag();
+      return;
+    }
     const deltaX = e.clientX - dragStartX.current;
     const rawX = dragStartTrackX.current + deltaX;
     // Slight elastic resistance at boundaries
@@ -1086,16 +1106,11 @@ function CustomTimerDial({
     updateDisplay(clampedX, false);
   };
 
-  const handlePointerUp = () => {
-    if (!isDragging.current) return;
-    isDragging.current = false;
-
-    // Smooth magnetic snap to the nearest integer minute
-    const nearestM = Math.max(MIN_MINUTES, Math.min(MAX_MINUTES, Math.round((centerOffset - currentX.current) / TICK_SPACING)));
-    targetX.current = centerOffset - nearestM * TICK_SPACING;
-    animateToTarget(() => {
-      onChange(nearestM);
-    });
+  const handlePointerUp = (e: React.PointerEvent) => {
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch { }
+    endDrag();
   };
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -1133,13 +1148,25 @@ function CustomTimerDial({
     }, 110);
   };
 
-  // Clean up RAF and timer on unmount
+  // Clean up RAF and timer on unmount, and attach safety global pointer release
   useEffect(() => {
+    const handleGlobalRelease = () => {
+      if (isDragging.current) {
+        endDrag();
+      }
+    };
+    window.addEventListener("pointerup", handleGlobalRelease);
+    window.addEventListener("pointercancel", handleGlobalRelease);
+    window.addEventListener("mouseup", handleGlobalRelease);
+
     return () => {
+      window.removeEventListener("pointerup", handleGlobalRelease);
+      window.removeEventListener("pointercancel", handleGlobalRelease);
+      window.removeEventListener("mouseup", handleGlobalRelease);
       if (rafId.current !== null) cancelAnimationFrame(rafId.current);
       if (wheelTimer.current) clearTimeout(wheelTimer.current);
     };
-  }, []);
+  }, [endDrag]);
 
   return (
     <motion.div
@@ -1167,6 +1194,8 @@ function CustomTimerDial({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={endDrag}
+        onLostPointerCapture={endDrag}
         onWheel={handleWheel}
       >
         <div
