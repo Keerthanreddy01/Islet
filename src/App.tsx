@@ -822,10 +822,10 @@ function CustomTimerDial({
   return (
     <motion.div
       className="custom-timer-setup-panel"
-      initial={{ opacity: 0, scale: 0.96, filter: "blur(2px)" }}
-      animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-      exit={{ opacity: 0, scale: 0.94, filter: "blur(4px)" }}
-      transition={{ duration: 0.20, ease: [0.16, 1, 0.3, 1] }}
+      initial={{ opacity: 0, scale: 0.97 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.97 }}
+      transition={{ duration: 0.18, ease: [0.32, 0.72, 0, 1] }}
     >
       {/* Top Header Row */}
       <div className="timer-setup-header" onPointerDown={(e) => e.stopPropagation()}>
@@ -1031,10 +1031,10 @@ function ScreenTimePanel({ onBackToTools, onClose, onSwitchToMusic, hasActiveMed
     <motion.div
       key="expanded-screentime"
       className="expanded-screentime-panel"
-      initial={{ opacity: 0, scale: 0.96, filter: "blur(2px)" }}
-      animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-      exit={{ opacity: 0, scale: 0.94, filter: "blur(4px)" }}
-      transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+      initial={{ opacity: 0, scale: 0.97 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.97 }}
+      transition={{ duration: 0.18, ease: [0.32, 0.72, 0, 1] }}
     >
       {/* Top Nav Row */}
       <div className="screentime-nav-row" onPointerDown={(e) => e.stopPropagation()}>
@@ -1566,7 +1566,7 @@ export function App() {
         window.islet?.window?.setIgnoreMouseEvents?.(true, { forward: true });
         void window.islet?.window?.finishCollapse?.();
       }
-    }, 380);
+    }, 480);
 
     void window.islet.window.collapse().catch((err: unknown) => {
       console.error("Collapse failed:", err);
@@ -1631,7 +1631,7 @@ export function App() {
     if (isAdjustingVolumeRef.current || isDraggingFileRef.current) {
       return;
     }
-    // Intentional hover-exit delay: 260ms gives user comfortable margin without accidental collapse
+    // Smooth hover-exit delay: 120ms gives natural grace without laggy hang
     if (!hoverCollapseTimer.current) {
       hoverCollapseTimer.current = window.setTimeout(() => {
         hoverCollapseTimer.current = null;
@@ -1640,7 +1640,7 @@ export function App() {
             triggerCollapse();
           }
         }
-      }, 260);
+      }, 120);
     }
   }, [triggerCollapse]);
 
@@ -1964,10 +1964,17 @@ export function App() {
           borderTopRightRadius: 0
         }}
         exit={{ opacity: 0, scale: 0.95 }}
-        transition={{
-          duration: 0.28,
-          ease: [0.16, 1, 0.3, 1]
-        }}
+        transition={
+          isCollapsing
+            ? {
+                duration: 0.36,
+                ease: [0.32, 0.72, 0, 1]
+              }
+            : {
+                duration: 0.28,
+                ease: [0.16, 1, 0.3, 1]
+              }
+        }
         onAnimationComplete={handleAnimationComplete}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
@@ -2017,10 +2024,10 @@ export function App() {
               <motion.div
                 key="expanded-shelf"
                 className="expanded-shelf-panel"
-                initial={{ opacity: 0, scale: 0.96, filter: "blur(2px)" }}
-                animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-                exit={{ opacity: 0, scale: 0.94, filter: "blur(4px)" }}
-                transition={{ duration: 0.20, ease: [0.16, 1, 0.3, 1] }}
+                initial={{ opacity: 0, scale: 0.97 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.97 }}
+                transition={{ duration: 0.18, ease: [0.32, 0.72, 0, 1] }}
               >
                 {/* Header */}
                 <div className="shelf-header">
@@ -2132,10 +2139,10 @@ export function App() {
                 <motion.div
                   key="expanded-timer-running"
                   className="expanded-timer-panel"
-                  initial={{ opacity: 0, scale: 0.96, filter: "blur(2px)" }}
-                  animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-                  exit={{ opacity: 0, scale: 0.94, filter: "blur(4px)" }}
-                  transition={{ duration: 0.20, ease: [0.16, 1, 0.3, 1] }}
+                  initial={{ opacity: 0, scale: 0.97 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.97 }}
+                  transition={{ duration: 0.18, ease: [0.32, 0.72, 0, 1] }}
                 >
                   {/* Dynamic Island Animated Perimeter Progress Contour (Screenshot 2 replica) */}
                   <svg
@@ -2275,10 +2282,10 @@ export function App() {
               <motion.div
                 key="expanded-music"
                 className="expanded-music-panel"
-                initial={{ opacity: 0, scale: 0.96, filter: "blur(2px)" }}
-                animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-                exit={{ opacity: 0, scale: 0.94, filter: "blur(4px)" }}
-                transition={{ duration: 0.20, ease: [0.16, 1, 0.3, 1] }}
+                initial={{ opacity: 0, scale: 0.97 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.97 }}
+                transition={{ duration: 0.18, ease: [0.32, 0.72, 0, 1] }}
               >
                 {/* Top Row: [52px Artwork] [Title & Artist] [SoundWave / Minimize] */}
                 <div className="expanded-music-top-row">
@@ -2433,10 +2440,10 @@ export function App() {
               <motion.div
                 key="expanded-quick-tools"
                 className="expanded-quickbar-panel"
-                initial={{ opacity: 0, scale: 0.96, filter: "blur(2px)" }}
-                animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-                exit={{ opacity: 0, scale: 0.94, filter: "blur(4px)" }}
-                transition={{ duration: 0.20, ease: [0.16, 1, 0.3, 1] }}
+                initial={{ opacity: 0, scale: 0.97 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.97 }}
+                transition={{ duration: 0.18, ease: [0.32, 0.72, 0, 1] }}
               >
                 {/* Brand Logo */}
                 <div className="quickbar-brand" onPointerDown={(e) => e.stopPropagation()}>
@@ -2527,13 +2534,12 @@ export function App() {
             <motion.div
               key="collapsed-timer"
               className="capsule-timer-bar"
-              initial={{ opacity: 0, scale: 0.94 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.94 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               whileHover={{ scale: 1.02 }}
               transition={{
-                scale: { type: "spring", stiffness: 400, damping: 25 },
-                opacity: { duration: 0.22, delay: 0.08, ease: [0.16, 1, 0.3, 1] }
+                opacity: { duration: 0.24, delay: 0.10, ease: [0.32, 0.72, 0, 1] }
               }}
               onClick={() => {
                 setActiveTab("timer");
@@ -2571,13 +2577,12 @@ export function App() {
             <motion.div
               key="collapsed-music"
               className="capsule-music-bar"
-              initial={{ opacity: 0, scale: 0.94 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.94 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               whileHover={{ scale: 1.015 }}
               transition={{
-                scale: { type: "spring", stiffness: 400, damping: 25 },
-                opacity: { duration: 0.22, delay: 0.08, ease: [0.16, 1, 0.3, 1] }
+                opacity: { duration: 0.24, delay: 0.10, ease: [0.32, 0.72, 0, 1] }
               }}
               onClick={() => {
                 setActiveTab("music");
@@ -2640,13 +2645,12 @@ export function App() {
             <motion.div
               key="collapsed-idle"
               className="capsule-idle-bar"
-              initial={{ opacity: 0, scale: 0.94 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.94 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               whileHover={{ scale: 1.02 }}
               transition={{
-                scale: { type: "spring", stiffness: 400, damping: 25 },
-                opacity: { duration: 0.22, delay: 0.08, ease: [0.16, 1, 0.3, 1] }
+                opacity: { duration: 0.24, delay: 0.10, ease: [0.32, 0.72, 0, 1] }
               }}
               onClick={() => {
                 triggerExpand();

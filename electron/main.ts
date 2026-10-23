@@ -630,7 +630,11 @@ const registerWindowIpc = () => {
     cancelCollapse();
     expanded = false;
     mediaService.setInteractive(false);
-    resizeToCollapsed();
+    setTimeout(() => {
+      if (!expanded) {
+        resizeToCollapsed();
+      }
+    }, 120);
     return false;
   });
 
