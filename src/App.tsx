@@ -2311,19 +2311,8 @@ export function App() {
                   </span>
                 </div>
 
-                {/* Bottom Row: [Star / Favorite] [Previous  Play/Pause  Next] [AirPlay Device] */}
+                {/* Bottom Row: Centered Playback Controls [Previous  Play/Pause  Next] */}
                 <div className="expanded-music-controls-row" onPointerDown={(e) => e.stopPropagation()}>
-                  <motion.button
-                    className={`music-side-icon-btn ${isFavorite ? "is-active" : ""}`}
-                    onClick={() => setIsFavorite((prev) => !prev)}
-                    title={isFavorite ? "Favorited" : "Favorite"}
-                    whileHover={{ scale: 1.15 }}
-                    whileTap={{ scale: 0.88 }}
-                    transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
-                  >
-                    <StarSvg filled={isFavorite} />
-                  </motion.button>
-
                   <div className="expanded-transport-center">
                     <motion.button
                       className="apple-transport-btn"
@@ -2361,16 +2350,6 @@ export function App() {
                       <AppleNextIcon />
                     </motion.button>
                   </div>
-
-                  <motion.button
-                    className="music-side-icon-btn"
-                    title={`Output: ${media.source ? media.source.toUpperCase() : "Audio Output"}`}
-                    whileHover={{ scale: 1.15 }}
-                    whileTap={{ scale: 0.88 }}
-                    transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
-                  >
-                    <AirPlayDeviceIcon />
-                  </motion.button>
                 </div>
               </motion.div>
             ) : (

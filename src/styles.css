@@ -615,38 +615,20 @@ button {
   transition: width 0.15s linear;
 }
 
-/* Bottom Row: [Star / Favorite] [Previous  Play/Pause  Next] [AirPlay Device] */
+/* Bottom Row: Centered Playback Controls [Previous  Play/Pause  Next] */
 .expanded-music-controls-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 0 4px 2px 4px;
-}
-
-.music-side-icon-btn {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
   justify-content: center;
-  color: #8e8e93;
-  border-radius: 50%;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.music-side-icon-btn:hover {
-  color: #ffffff;
-}
-
-.music-side-icon-btn.is-active {
-  color: #ffcc00;
+  width: 100%;
+  padding: 2px 0 2px 0;
 }
 
 .expanded-transport-center {
   display: flex;
   align-items: center;
-  gap: 24px;
+  justify-content: center;
+  gap: 36px;
 }
 
 .apple-transport-btn {
