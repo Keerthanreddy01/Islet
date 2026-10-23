@@ -719,6 +719,14 @@ const registerIpc = () => {
     return mediaService.getCurrentMedia();
   });
 
+  ipcMain.handle("media:set-volume", (_event, volumePercent: number) => {
+    mediaService.setVolume(volumePercent);
+  });
+
+  ipcMain.handle("media:get-volume", () => {
+    return mediaService.getVolume();
+  });
+
   ipcMain.handle("media:volume-up", () => {
     mediaService.sendCommand("volume-up");
   });

@@ -10,6 +10,8 @@ export type MediaState = {
   positionMs: number;
   durationMs: number;
   lastUpdatedMs?: number;
+  volume?: number; // 0 to 100
+  isMuted?: boolean;
 };
 
 export type ScreenTimeDay = {
@@ -140,6 +142,8 @@ export type IsletApi = {
     next(): Promise<void>;
     previous(): Promise<void>;
     seek(positionMs: number): Promise<void>;
+    setVolume(volumePercent: number): Promise<void>;
+    getVolume(): Promise<{ volume: number; isMuted: boolean }>;
     volumeUp(): Promise<void>;
     volumeDown(): Promise<void>;
     volumeMute(): Promise<void>;

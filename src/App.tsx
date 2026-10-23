@@ -1332,6 +1332,12 @@ export function App() {
   const dragCounter = useRef(0);
   const mediaClearTimer = useRef<NodeJS.Timeout | null>(null);
 
+  // Compact Volume Slider state & interactions
+  const [isVolumeOpen, setIsVolumeOpen] = useState(false);
+  const [volumeOverride, setVolumeOverride] = useState<number | null>(null);
+  const volumeTrackRef = useRef<HTMLDivElement | null>(null);
+  const isAdjustingVolumeRef = useRef(false);
+
   const drag = useRef<DragState>({
     active: false,
     moved: false,
@@ -1443,9 +1449,55 @@ export function App() {
     });
   }, [activeTab, hasActiveMedia]);
 
+  // Synchronize volumeOverride with external volume updates
+  useEffect(() => {
+    if (!isAdjustingVolumeRef.current) {
+      setVolumeOverride(null);
+    }
+  }, [media?.volume]);
+
+  const updateVolumeFromPointer = useCallback((clientX: number) => {
+    if (!volumeTrackRef.current) return;
+    const rect = volumeTrackRef.current.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const newVol = Math.round(ratio * 100);
+    setVolumeOverride(newVol);
+    void window.islet?.media?.setVolume?.(newVol);
+  }, []);
+
+  const handleVolumePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    e.preventDefault();
+    isAdjustingVolumeRef.current = true;
+    updateVolumeFromPointer(e.clientX);
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      moveEvent.stopPropagation();
+      moveEvent.preventDefault();
+      updateVolumeFromPointer(moveEvent.clientX);
+    };
+
+    const onPointerUp = (upEvent: PointerEvent) => {
+      upEvent.stopPropagation();
+      isAdjustingVolumeRef.current = false;
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+  }, [updateVolumeFromPointer]);
+
+  const currentVolume = volumeOverride !== null ? volumeOverride : (media?.volume ?? 50);
+
   const triggerCollapse = useCallback(() => {
     if (stateRef.current === "collapsed" || stateRef.current === "collapsing") return;
     setState("collapsing");
+    setIsVolumeOpen(false);
+    isAdjustingVolumeRef.current = false;
 
     if (collapseSafetyTimer.current) clearTimeout(collapseSafetyTimer.current);
     collapseSafetyTimer.current = window.setTimeout(() => {
@@ -1455,7 +1507,7 @@ export function App() {
         window.islet?.window?.setIgnoreMouseEvents?.(true, { forward: true });
         void window.islet?.window?.finishCollapse?.();
       }
-    }, 450);
+    }, 380);
 
     void window.islet.window.collapse().catch((err: unknown) => {
       console.error("Collapse failed:", err);
@@ -1516,16 +1568,20 @@ export function App() {
       clearTimeout(hoverExpandTimer.current);
       hoverExpandTimer.current = null;
     }
-    // Grace period before collapsing: 180ms so user can comfortably navigate and isn't punished by brief cursor slips
+    // Prevent collapsing if user is adjusting volume or dragging a file
+    if (isAdjustingVolumeRef.current || isDraggingFileRef.current) {
+      return;
+    }
+    // Intentional hover-exit delay: 260ms gives user comfortable margin without accidental collapse
     if (!hoverCollapseTimer.current) {
       hoverCollapseTimer.current = window.setTimeout(() => {
         hoverCollapseTimer.current = null;
-        if (!isHoveredSurfaceRef.current && !isDraggingFileRef.current) {
+        if (!isHoveredSurfaceRef.current && !isDraggingFileRef.current && !isAdjustingVolumeRef.current) {
           if (stateRef.current === "expanded" || stateRef.current === "expanding") {
             triggerCollapse();
           }
         }
-      }, 180);
+      }, 260);
     }
   }, [triggerCollapse]);
 
@@ -1562,9 +1618,9 @@ export function App() {
           api.window.setIgnoreMouseEvents(false);
           handleMouseEnter();
         } else {
-          // Keep mouse events enabled during collapse so no window blur/snapping occurs!
-          // setIgnoreMouseEvents(true) will be called upon animation completion.
-          handleMouseLeave();
+          if (!isAdjustingVolumeRef.current && !isDraggingFileRef.current) {
+            handleMouseLeave();
+          }
         }
       }
     };
@@ -1843,10 +1899,8 @@ export function App() {
         }}
         exit={{ opacity: 0, scale: 0.95 }}
         transition={{
-          type: "spring",
-          stiffness: 350,
-          damping: 32,
-          mass: 0.65
+          duration: 0.28,
+          ease: [0.16, 1, 0.3, 1]
         }}
         onAnimationComplete={handleAnimationComplete}
         onMouseEnter={handleMouseEnter}
@@ -2183,10 +2237,44 @@ export function App() {
                   </div>
 
                   <div className="expanded-music-top-right" onPointerDown={(e) => e.stopPropagation()}>
+                    <AnimatePresence>
+                      {isVolumeOpen && (
+                        <motion.div
+                          key="compact-volume-slider"
+                          className="compact-volume-slider-bar"
+                          initial={{ opacity: 0, width: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, width: 84, scale: 1 }}
+                          exit={{ opacity: 0, width: 0, scale: 0.9 }}
+                          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                          onPointerDown={(e) => e.stopPropagation()}
+                        >
+                          <div
+                            className="compact-volume-track"
+                            ref={volumeTrackRef}
+                            onPointerDown={handleVolumePointerDown}
+                            title={`Volume: ${Math.round(currentVolume)}%`}
+                          >
+                            <div
+                              className="compact-volume-fill"
+                              style={{ width: `${Math.max(0, Math.min(100, currentVolume))}%` }}
+                            />
+                            <div
+                              className="compact-volume-thumb"
+                              style={{ left: `${Math.max(0, Math.min(100, currentVolume))}%` }}
+                            />
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
                     <button
-                      className="music-soundwave-btn"
-                      onClick={() => switchTab("tools")}
-                      title="Quick Tools"
+                      className={`music-soundwave-btn ${isVolumeOpen ? "is-active" : ""}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsVolumeOpen((prev) => !prev);
+                      }}
+                      title={isVolumeOpen ? "Hide Volume" : `Volume: ${Math.round(currentVolume)}%`}
+                      aria-label="Volume"
                     >
                       <SoundWaveIcon />
                     </button>
@@ -2473,29 +2561,6 @@ export function App() {
                   {isSwitching ? "" : media.artist || "Unknown Artist"}
                 </span>
               </div>
-
-              {/* Right: In-place Circular Play/Pause Button */}
-              <motion.button
-                className="capsule-play-btn"
-                onClick={handlePlayPause}
-                title={isPlaying ? "Pause" : "Play"}
-                aria-label={isPlaying ? "Pause" : "Play"}
-                whileHover={{ scale: 1.08 }}
-                whileTap={{ scale: 0.92 }}
-                transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
-                onPointerDown={(e) => e.stopPropagation()}
-              >
-                {isPlaying ? (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
-                    <rect x="5" y="4" width="4.5" height="16" rx="2" />
-                    <rect x="14.5" y="4" width="4.5" height="16" rx="2" />
-                  </svg>
-                ) : (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="white" style={{ marginLeft: 1 }}>
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
-                )}
-              </motion.button>
 
               {/* Far Right: Circular App Source Badge (Spotify, Apple Music, YouTube) */}
               <div

@@ -469,6 +469,69 @@ button {
   flex-shrink: 0;
 }
 
+/* Compact Volume Slider Bar */
+.compact-volume-slider-bar {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  height: 28px;
+  padding: 0 4px;
+}
+
+.compact-volume-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 3px;
+  position: relative;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  user-select: none;
+  touch-action: none;
+  transition: height 0.14s ease, background 0.14s ease;
+}
+
+.compact-volume-track:hover {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.compact-volume-fill {
+  height: 100%;
+  background: #ffffff;
+  border-radius: 3px;
+  pointer-events: none;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
+  transition: width 0.04s linear;
+}
+
+.compact-volume-thumb {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  opacity: 0.95;
+  transition: transform 0.1s ease, width 0.1s ease, height 0.1s ease;
+}
+
+.compact-volume-track:hover .compact-volume-thumb {
+  width: 12px;
+  height: 12px;
+  opacity: 1;
+}
+
+.music-soundwave-btn.is-active {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.18);
+  transform: scale(1.05);
+}
+
 .music-soundwave-btn {
   width: 28px;
   height: 28px;

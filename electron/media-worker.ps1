@@ -36,6 +36,119 @@ if (-not (Test-Path $artCacheDir)) {
     New-Item -ItemType Directory -Path $artCacheDir -Force | Out-Null
 }
 
+# Windows CoreAudio Endpoint Volume Interop
+$audioInterop = @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace IsletAudio {
+    [ComImport, Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IAudioEndpointVolume {
+        int RegisterControlChangeNotify(IntPtr pNotify);
+        int UnregisterControlChangeNotify(IntPtr pNotify);
+        int GetChannelCount(out uint pnChannelCount);
+        int SetMasterVolumeLevel(float fLevelDB, Guid pguidEventContext);
+        int SetMasterVolumeLevelScalar(float fLevel, Guid pguidEventContext);
+        int GetMasterVolumeLevel(out float pfLevelDB);
+        int GetMasterVolumeLevelScalar(out float pfLevel);
+        int SetChannelVolumeLevel(uint nChannel, float fLevelDB, Guid pguidEventContext);
+        int SetChannelVolumeLevelScalar(uint nChannel, float fLevel, Guid pguidEventContext);
+        int GetChannelVolumeLevel(uint nChannel, out float pfLevelDB);
+        int GetChannelVolumeLevelScalar(uint nChannel, out float pfLevel);
+        int SetMute([MarshalAs(UnmanagedType.Bool)] bool bMute, Guid pguidEventContext);
+        int GetMute([MarshalAs(UnmanagedType.Bool)] out bool pbMute);
+        int GetVolumeStepInfo(out uint pnStep, out uint pnStepCount);
+        int VolumeStepUp(Guid pguidEventContext);
+        int VolumeStepDown(Guid pguidEventContext);
+        int QueryHardwareSupport(out uint pdwHardwareSupportMask);
+        int GetVolumeRange(out float pflVolumeMindB, out float pflVolumeMaxdB, out float pflVolumeIncrementdB);
+    }
+
+    [ComImport, Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IMMDevice {
+        int Activate(ref Guid id, int clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object val);
+        int OpenPropertyStore(int stgmAccess, out IntPtr ppProperties);
+        int GetId([MarshalAs(UnmanagedType.LPWStr)] out string ppstrId);
+        int GetState(out int pdwState);
+    }
+
+    [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IMMDeviceEnumerator {
+        int EnumAudioEndpoints(int dataFlow, int dwStateMask, out IntPtr ppDevices);
+        int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppEndpoint);
+    }
+
+    public static class AudioMaster {
+        private static IAudioEndpointVolume GetEndpoint() {
+            try {
+                var t = Type.GetTypeFromCLSID(new Guid("BCDE0395-E52F-467C-8E3D-C4579291692E"));
+                var obj = Activator.CreateInstance(t);
+                var enumerator = (IMMDeviceEnumerator)obj;
+                IMMDevice dev = null;
+                enumerator.GetDefaultAudioEndpoint(0, 1, out dev);
+                if (dev == null) return null;
+                var iid = typeof(IAudioEndpointVolume).GUID;
+                object epvObj = null;
+                dev.Activate(ref iid, 1, IntPtr.Zero, out epvObj);
+                return (IAudioEndpointVolume)epvObj;
+            } catch {
+                return null;
+            }
+        }
+
+        public static float Get() {
+            try {
+                var ep = GetEndpoint();
+                if (ep == null) return -1f;
+                float v = 0;
+                ep.GetMasterVolumeLevelScalar(out v);
+                return v;
+            } catch {
+                return -1f;
+            }
+        }
+
+        public static bool Set(float v) {
+            try {
+                var ep = GetEndpoint();
+                if (ep == null) return false;
+                ep.SetMasterVolumeLevelScalar(v, Guid.Empty);
+                return true;
+            } catch {
+                return false;
+            }
+        }
+
+        public static bool GetMute() {
+            try {
+                var ep = GetEndpoint();
+                if (ep == null) return false;
+                bool m;
+                ep.GetMute(out m);
+                return m;
+            } catch {
+                return false;
+            }
+        }
+
+        public static bool SetMute(bool m) {
+            try {
+                var ep = GetEndpoint();
+                if (ep == null) return false;
+                ep.SetMute(m, Guid.Empty);
+                return true;
+            } catch {
+                return false;
+            }
+        }
+    }
+}
+'@
+
+try {
+    Add-Type -TypeDefinition $audioInterop -ErrorAction SilentlyContinue
+} catch {}
+
 $cmdFile = Join-Path $artCacheDir "cmd.txt"
 $lastStateSig = ""
 $lastArtFile = ""
@@ -200,6 +313,15 @@ function Get-MediaSnapshot {
         }
     }
 
+    $volScalar = -1
+    $isMuted = $false
+    try {
+        $volScalar = [IsletAudio.AudioMaster]::Get()
+        $isMuted = [IsletAudio.AudioMaster]::GetMute()
+    } catch {}
+
+    $volInt = if ($volScalar -ge 0) { [Math]::Round($volScalar * 100) } else { 50 }
+
     return [PSCustomObject]@{
         type = "media"
         app = $app
@@ -213,6 +335,8 @@ function Get-MediaSnapshot {
         durationMs = $durMs
         lastUpdatedMs = $lastUpdatedEpochMs
         artworkPath = $artPath
+        volume = $volInt
+        isMuted = $isMuted
     }
 }
 
@@ -224,37 +348,69 @@ while ($true) {
         try {
             $cmd = (Get-Content $cmdFile -Raw -ErrorAction SilentlyContinue).Trim().ToLower()
             Remove-Item $cmdFile -Force -ErrorAction SilentlyContinue
-            $session = $mgr.GetCurrentSession()
-            if (-not $session) {
-                $all = $mgr.GetSessions()
-                if ($all -and $all.Count -gt 0) {
-                    $session = $all[0]
-                }
-            }
-            if ($session -and $cmd) {
-                $script:inCommandTransitionTicks = 12 # Guard ~1.2s during track command
-                if ($cmd -eq "play-pause") {
-                    [void]$session.TryTogglePlayPauseAsync()
-                } elseif ($cmd -eq "play") {
-                    [void]$session.TryPlayAsync()
-                } elseif ($cmd -eq "pause") {
-                    [void]$session.TryPauseAsync()
-                } elseif ($cmd -eq "next") {
-                    [void]$session.TrySkipNextAsync()
-                } elseif ($cmd -eq "previous") {
-                    [void]$session.TrySkipPreviousAsync()
-                } elseif ($cmd -match "^seek:(\d+)$") {
-                    try {
-                        $seekMs = [long]$matches[1]
-                        $ticks = $seekMs * 10000
-                        [void]$session.TryChangePlaybackPositionAsync($ticks)
-                    } catch {}
-                } elseif ($cmd -eq "volume-up") {
-                    try { (New-Object -ComObject WScript.Shell).SendKeys([char]175) } catch {}
-                } elseif ($cmd -eq "volume-down") {
-                    try { (New-Object -ComObject WScript.Shell).SendKeys([char]174) } catch {}
-                } elseif ($cmd -eq "volume-mute") {
+
+            if ($cmd -match "^set-volume:([0-9\.]+)$") {
+                try {
+                    $pct = [float]$matches[1]
+                    $scalar = [Math]::Max(0.0, [Math]::Min(1.0, $pct / 100.0))
+                    [void][IsletAudio.AudioMaster]::Set($scalar)
+                } catch {}
+            } elseif ($cmd -eq "volume-mute") {
+                try {
+                    $cur = [IsletAudio.AudioMaster]::GetMute()
+                    [void][IsletAudio.AudioMaster]::SetMute(-not $cur)
+                } catch {
                     try { (New-Object -ComObject WScript.Shell).SendKeys([char]173) } catch {}
+                }
+            } elseif ($cmd -eq "volume-up") {
+                try {
+                    $cur = [IsletAudio.AudioMaster]::Get()
+                    if ($cur -ge 0) {
+                        [void][IsletAudio.AudioMaster]::Set([Math]::Min(1.0, $cur + 0.05))
+                    } else {
+                        (New-Object -ComObject WScript.Shell).SendKeys([char]175)
+                    }
+                } catch {
+                    try { (New-Object -ComObject WScript.Shell).SendKeys([char]175) } catch {}
+                }
+            } elseif ($cmd -eq "volume-down") {
+                try {
+                    $cur = [IsletAudio.AudioMaster]::Get()
+                    if ($cur -ge 0) {
+                        [void][IsletAudio.AudioMaster]::Set([Math]::Max(0.0, $cur - 0.05))
+                    } else {
+                        (New-Object -ComObject WScript.Shell).SendKeys([char]174)
+                    }
+                } catch {
+                    try { (New-Object -ComObject WScript.Shell).SendKeys([char]174) } catch {}
+                }
+            } else {
+                $session = $mgr.GetCurrentSession()
+                if (-not $session) {
+                    $all = $mgr.GetSessions()
+                    if ($all -and $all.Count -gt 0) {
+                        $session = $all[0]
+                    }
+                }
+                if ($session -and $cmd) {
+                    $script:inCommandTransitionTicks = 12 # Guard ~1.2s during track command
+                    if ($cmd -eq "play-pause") {
+                        [void]$session.TryTogglePlayPauseAsync()
+                    } elseif ($cmd -eq "play") {
+                        [void]$session.TryPlayAsync()
+                    } elseif ($cmd -eq "pause") {
+                        [void]$session.TryPauseAsync()
+                    } elseif ($cmd -eq "next") {
+                        [void]$session.TrySkipNextAsync()
+                    } elseif ($cmd -eq "previous") {
+                        [void]$session.TrySkipPreviousAsync()
+                    } elseif ($cmd -match "^seek:(\d+)$") {
+                        try {
+                            $seekMs = [long]$matches[1]
+                            $ticks = $seekMs * 10000
+                            [void]$session.TryChangePlaybackPositionAsync($ticks)
+                        } catch {}
+                    }
                 }
             }
         } catch {
@@ -274,7 +430,7 @@ while ($true) {
         if ($snapshot) {
             $script:consecutiveNullSnapshots = 0
             $json = $snapshot | ConvertTo-Json -Compress
-            $sig = "$($snapshot.app):$($snapshot.title):$($snapshot.artist):$($snapshot.status):$([Math]::Floor($snapshot.positionMs / 1000))"
+            $sig = "$($snapshot.app):$($snapshot.title):$($snapshot.artist):$($snapshot.status):$([Math]::Floor($snapshot.positionMs / 1000)):$($snapshot.volume):$($snapshot.isMuted)"
             if ($sig -ne $lastStateSig) {
                 $lastStateSig = $sig
                 [Console]::Out.WriteLine($json)

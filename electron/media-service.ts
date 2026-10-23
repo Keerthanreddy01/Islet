@@ -30,6 +30,8 @@ export class MediaService {
   private currentArtworkSongKey: string = "";
   private lastEmittedArtworkPath: string = "";
   private currentArtworkUrl: string | undefined = undefined;
+  private currentVolume: number = 50;
+  private isMuted: boolean = false;
 
   constructor(logger?: Logger) {
     this.log = logger || ((msg) => console.log(`[MediaService] ${msg}`));
@@ -166,6 +168,20 @@ export class MediaService {
     this.sendCommand(`seek:${Math.round(positionMs)}`);
   }
 
+  public setVolume(volumePercent: number): void {
+    const clamped = Math.max(0, Math.min(100, Math.round(volumePercent)));
+    this.currentVolume = clamped;
+    this.sendCommand(`set-volume:${clamped}`);
+    if (this.currentMedia) {
+      this.currentMedia = { ...this.currentMedia, volume: clamped };
+      this.notify(this.currentMedia);
+    }
+  }
+
+  public getVolume(): { volume: number; isMuted: boolean } {
+    return { volume: this.currentVolume, isMuted: this.isMuted };
+  }
+
   private notify(media: MediaState | null): void {
     this.log(
       `[MediaService] Notifying ${this.listeners.size} listeners with media: ${media ? `"${media.title}" by "${media.artist}" [${media.status}]` : "null"
@@ -214,6 +230,13 @@ export class MediaService {
           this.notify(null);
         }
         return;
+      }
+
+      if (typeof data.volume === "number") {
+        this.currentVolume = data.volume;
+      }
+      if (typeof data.isMuted === "boolean") {
+        this.isMuted = data.isMuted;
       }
 
       const isPlaying = data.status === "playing";
@@ -307,7 +330,9 @@ export class MediaService {
         artworkUrl: this.currentArtworkUrl,
         positionMs: posMs,
         durationMs: durMs,
-        lastUpdatedMs: Number(data.lastUpdatedMs) || Date.now()
+        lastUpdatedMs: Number(data.lastUpdatedMs) || Date.now(),
+        volume: this.currentVolume,
+        isMuted: this.isMuted
       };
 
       this.log(
