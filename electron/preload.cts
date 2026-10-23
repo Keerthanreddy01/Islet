@@ -125,6 +125,16 @@ const api: IsletApi = {
   },
   screentime: {
     get: () => ipcRenderer.invoke("screentime:get")
+  },
+  agents: {
+    getState: () => ipcRenderer.invoke("agents:get-state"),
+    subscribe: (listener) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: any) => listener(state);
+      ipcRenderer.on("agents:changed", handler);
+      return () => ipcRenderer.removeListener("agents:changed", handler);
+    },
+    setPrimaryMode: (mode: "agent" | "spotify") => ipcRenderer.invoke("agents:set-primary-mode", mode),
+    swapPrimary: () => ipcRenderer.invoke("agents:swap-primary")
   }
 };
 

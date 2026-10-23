@@ -1,24 +1,53 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useRef, useState, useCallback } from "react";
-import type { MediaState, ScreenTimeData } from "../electron/ipc";
+import { useEffect, useRef, useState, useCallback, memo } from "react";
+import type { MediaState, ScreenTimeData, AgentState, AgentStatus } from "../electron/ipc";
 import appLogo from "../logo.png";
 
 const artworkMemoryCache = new Map<string, string>();
 
-function cleanTrackTitle(title: string): string {
-  return (title || "")
-    .replace(/\s*[\(\[](official\s*(music\s*)?(video|audio)|lyrics?|visualizer|feat\.?|ft\.?|remix|hd|4k|prod\.?).*?[\)\]]/gi, "")
-    .replace(/\s*[\(\[].*?beat.*?[\)\]]/gi, "")
-    .replace(/^.+?\s*-\s*/, "") // Strip "Artist - " prefix
-    .trim();
+function cleanTrackTitle(title: string, artist?: string): string {
+  let parsedArtist = (artist || "").trim();
+  let parsedTitle = (title || "").trim();
+
+  if (parsedTitle.includes(" - ")) {
+    const parts = parsedTitle.split(/\s+-\s+/);
+    if (parts.length >= 2) {
+      if (
+        !parsedArtist ||
+        parsedArtist.toLowerCase().includes("youtube") ||
+        parsedArtist.toLowerCase().includes("chrome") ||
+        parsedArtist.toLowerCase().includes("brave") ||
+        parsedArtist.toLowerCase().includes("edge") ||
+        parsedArtist.toLowerCase().includes("browser")
+      ) {
+        parsedArtist = parts[0].trim();
+        parsedTitle = parts.slice(1).join(" - ").trim();
+      } else if (parsedTitle.toLowerCase().startsWith(parsedArtist.toLowerCase())) {
+        parsedTitle = parsedTitle.slice(parsedArtist.length).replace(/^[\s\-–—:]+/, "").trim();
+      }
+    }
+  }
+
+  return (
+    parsedTitle
+      .replace(/\s*[\(\[](official\s*(music\s*)?(video|audio|visualizer)|lyrics?|visualizer|feat\.?|ft\.?|remix|hd|4k|prod\.?).*?[\)\]]/gi, "")
+      .replace(/\s*[\(\[].*?beat.*?[\)\]]/gi, "")
+      .replace(/\s*\|.*$/, "")
+      .replace(/\s*#\w+/g, "")
+      .trim() || title
+  );
 }
 
 function cleanArtistName(artist: string): string {
-  return (artist || "").split(/[,&/]|feat\.?|ft\.?/i)[0].trim();
+  return (artist || "")
+    .replace(/\s*-\s*topic$/i, "")
+    .replace(/\s*vevo$/i, "")
+    .split(/[,&/]|feat\.?|ft\.?/i)[0]
+    .trim();
 }
 
 async function fetchOnlineArtwork(title: string, artist: string): Promise<string | null> {
-  const cTitle = cleanTrackTitle(title);
+  const cTitle = cleanTrackTitle(title, artist);
   const cArtist = cleanArtistName(artist);
   if (!cTitle) return null;
 
@@ -37,20 +66,22 @@ async function fetchOnlineArtwork(title: string, artist: string): Promise<string
 
   try {
     // 1. Search clean title + artist
-    let query = encodeURIComponent(`${cTitle} ${cArtist}`.trim());
-    let res = await fetch(`https://itunes.apple.com/search?term=${query}&entity=song&limit=1`);
-    let data = await res.json();
-    if (data.results && data.results.length > 0 && data.results[0].artworkUrl100) {
-      const art = data.results[0].artworkUrl100.replace("100x100bb", "600x600bb");
-      artworkMemoryCache.set(cacheKey, art);
-      try { sessionStorage.setItem(`art_${cacheKey}`, art); } catch { }
-      return art;
+    if (cArtist && !cArtist.toLowerCase().includes("youtube") && !cArtist.toLowerCase().includes("browser")) {
+      const query = encodeURIComponent(`${cTitle} ${cArtist}`.trim());
+      const res = await fetch(`https://itunes.apple.com/search?term=${query}&entity=song&limit=1`);
+      const data = await res.json();
+      if (data.results && data.results.length > 0 && data.results[0].artworkUrl100) {
+        const art = data.results[0].artworkUrl100.replace("100x100bb", "600x600bb");
+        artworkMemoryCache.set(cacheKey, art);
+        try { sessionStorage.setItem(`art_${cacheKey}`, art); } catch { }
+        return art;
+      }
     }
 
     // 2. Search clean title alone
-    query = encodeURIComponent(cTitle);
-    res = await fetch(`https://itunes.apple.com/search?term=${query}&entity=song&limit=1`);
-    data = await res.json();
+    const query = encodeURIComponent(cTitle);
+    const res = await fetch(`https://itunes.apple.com/search?term=${query}&entity=song&limit=1`);
+    const data = await res.json();
     if (data.results && data.results.length > 0 && data.results[0].artworkUrl100) {
       const art = data.results[0].artworkUrl100.replace("100x100bb", "600x600bb");
       artworkMemoryCache.set(cacheKey, art);
@@ -134,8 +165,18 @@ function AlbumArtwork({
     Boolean(title && title.toLowerCase().includes("youtube")) ||
     Boolean(artist && artist.toLowerCase().includes("youtube"));
 
-  const [onlineUrl, setOnlineUrl] = useState<string | null>(null);
-  const [imgFailed, setImgFailed] = useState(false);
+  // Track key strictly isolates artwork per song to prevent stale artwork leaks
+  const trackKey = `${(title || "").trim().toLowerCase()}:::${(artist || "").trim().toLowerCase()}`;
+
+  const [onlineState, setOnlineState] = useState<{ trackKey: string; url: string | null }>({
+    trackKey: "",
+    url: null
+  });
+  const [failedState, setFailedState] = useState<{ trackKey: string; failedUrl: string | null }>({
+    trackKey: "",
+    failedUrl: null
+  });
+  const [retryNonce, setRetryNonce] = useState(0);
 
   // For YouTube media, directly render the official YouTube play-logo icon
   if (isYouTube) {
@@ -145,56 +186,69 @@ function AlbumArtwork({
   const isBrowserOrWeb = source === "browser" || source === "generic";
 
   useEffect(() => {
-    setImgFailed(false);
-    if (!title) {
-      setOnlineUrl(null);
-      return;
-    }
+    if (!title) return;
 
-    const cTitle = cleanTrackTitle(title);
+    const cTitle = cleanTrackTitle(title, artist);
     const cArtist = cleanArtistName(artist || "");
     const cacheKey = `${cTitle.toLowerCase()}:::${cArtist.toLowerCase()}`;
 
     if (artworkMemoryCache.has(cacheKey)) {
-      setOnlineUrl(artworkMemoryCache.get(cacheKey)!);
+      setOnlineState({ trackKey, url: artworkMemoryCache.get(cacheKey)! });
       return;
     }
 
-    // For browser media or when local artwork is missing, immediately resolve the genuine cover
+    // For browser media or when native artwork is missing, immediately resolve genuine album cover
     if (isBrowserOrWeb || !src) {
       let active = true;
       fetchOnlineArtwork(title, artist || "").then((url) => {
         if (active && url) {
-          setOnlineUrl(url);
+          setOnlineState({ trackKey, url });
         }
       });
       return () => {
         active = false;
       };
-    } else {
-      setOnlineUrl(null);
     }
-  }, [title, artist, src, isBrowserOrWeb]);
+  }, [title, artist, src, isBrowserOrWeb, trackKey]);
+
+  // Derive active online artwork ONLY if it belongs to current track
+  const currentOnlineUrl = onlineState.trackKey === trackKey ? onlineState.url : null;
+  const isSrcFailed = failedState.trackKey === trackKey && failedState.failedUrl === src;
 
   let displayUrl: string | null = null;
   if (isBrowserOrWeb) {
-    // For browsers, prefer the genuine online album cover over the browser executable logo (e.g. Brave lion)
-    displayUrl = onlineUrl || null;
+    // For browsers, prefer genuine online album cover over browser executable logo
+    displayUrl = currentOnlineUrl;
   } else {
-    // For native players (Spotify), prefer native src unless failed or onlineUrl is ready
-    displayUrl = !imgFailed && src ? src : onlineUrl;
+    // For native players (Spotify), prefer native src unless failed, otherwise fall back to onlineUrl
+    displayUrl = src && !isSrcFailed ? src : currentOnlineUrl;
   }
 
   const handleImgError = () => {
-    setImgFailed(true);
-    if (!onlineUrl && title) {
-      fetchOnlineArtwork(title, artist || "").then((url) => {
-        if (url) setOnlineUrl(url);
-      });
+    if (displayUrl) {
+      // Bounded retry if it's a native islet-art:// stream that might have had transient file timing
+      if (displayUrl.includes("islet-art://") && retryNonce < 2) {
+        const nextRetry = retryNonce + 1;
+        setTimeout(() => {
+          setRetryNonce(nextRetry);
+        }, 150 * nextRetry);
+        return;
+      }
+
+      setFailedState({ trackKey, failedUrl: displayUrl });
+
+      // If native stream failed and we don't have online artwork yet, trigger online lookup
+      if (!currentOnlineUrl && title) {
+        fetchOnlineArtwork(title, artist || "").then((url) => {
+          if (url) {
+            setOnlineState({ trackKey, url });
+          }
+        });
+      }
     }
   };
 
-  if (!displayUrl || (displayUrl === src && imgFailed)) {
+  if (!displayUrl || (failedState.trackKey === trackKey && failedState.failedUrl === displayUrl)) {
     return (
       <div className={`art-fallback ${className ?? ""}`} style={{ width: size, height: size }}>
         <svg width={size} height={size} viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -207,9 +261,15 @@ function AlbumArtwork({
     );
   }
 
+  const finalSrc =
+    displayUrl.includes("islet-art://") && retryNonce > 0
+      ? `${displayUrl}&r=${retryNonce}`
+      : displayUrl;
+
   return (
     <img
-      src={displayUrl}
+      key={`${trackKey}::${displayUrl}::${retryNonce}`}
+      src={finalSrc}
       className={className}
       alt=""
       style={{ width: size, height: size, objectFit: "cover" }}
@@ -229,14 +289,6 @@ function MicroEq() {
   );
 }
 
-function MusicIcon() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
-    </svg>
-  );
-}
-
 function CloseIcon() {
   return (
     <svg
@@ -251,47 +303,6 @@ function CloseIcon() {
       style={{ display: "block" }}
     >
       <path d="M2.5 2.5L9.5 9.5M9.5 2.5L2.5 9.5" />
-    </svg>
-  );
-}
-
-function PrevIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
-    </svg>
-  );
-}
-
-function NextIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-      <path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-    </svg>
-  );
-}
-
-function PlayIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style={{ marginLeft: 1 }}>
-      <path d="M8 5v14l11-7z" />
-    </svg>
-  );
-}
-
-function PauseIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-    </svg>
-  );
-}
-
-// Apple Dynamic Island Music Icons & Source Badges (Screenshots 1 & 2 replica)
-function StarSvg({ filled }: { filled?: boolean }) {
-  return (
-    <svg width="17" height="17" viewBox="0 0 24 24" fill={filled ? "#ffcc00" : "none"} stroke={filled ? "#ffcc00" : "currentColor"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
     </svg>
   );
 }
@@ -329,15 +340,6 @@ function ApplePlayIcon() {
   );
 }
 
-function AirPlayDeviceIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="20" height="14" rx="2" />
-      <polygon points="12 17 8 21 16 21 12 17" fill="currentColor" />
-    </svg>
-  );
-}
-
 function SoundWaveIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -347,6 +349,229 @@ function SoundWaveIcon() {
     </svg>
   );
 }
+
+function ToolsGridIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+    </svg>
+  );
+}
+
+interface CompactVolumeSliderProps {
+  volume: number;
+  onVolumeChange: (vol: number) => void;
+  onDragStateChange?: (isDragging: boolean) => void;
+}
+
+// Dedicated high-performance volume slider with zero-latency synchronization
+const CompactVolumeSlider = memo(function CompactVolumeSlider({
+  volume,
+  onVolumeChange,
+  onDragStateChange
+}: CompactVolumeSliderProps) {
+  const [localVolume, setLocalVolume] = useState(() => Math.max(0, Math.min(100, Math.round(volume))));
+  const [isDragging, setIsDragging] = useState(false);
+
+  const isDraggingRef = useRef(false);
+  const currentVolumeRef = useRef(localVolume);
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const fillRef = useRef<HTMLDivElement | null>(null);
+  const thumbRef = useRef<HTMLDivElement | null>(null);
+  const trackRectRef = useRef<DOMRect | null>(null);
+
+  const onVolumeChangeRef = useRef(onVolumeChange);
+  onVolumeChangeRef.current = onVolumeChange;
+
+  const onDragStateChangeRef = useRef(onDragStateChange);
+  onDragStateChangeRef.current = onDragStateChange;
+
+  const throttleTimerRef = useRef<number | null>(null);
+  const pendingVolumeRef = useRef<number | null>(null);
+  const lastDispatchedVolumeRef = useRef<number>(localVolume);
+
+  // Sync external volume updates ONLY when not dragging
+  useEffect(() => {
+    if (!isDraggingRef.current) {
+      const clamped = Math.max(0, Math.min(100, Math.round(volume)));
+      currentVolumeRef.current = clamped;
+      setLocalVolume(clamped);
+      if (fillRef.current) fillRef.current.style.width = `${clamped}%`;
+      if (thumbRef.current) thumbRef.current.style.left = `${clamped}%`;
+    }
+  }, [volume]);
+
+  // Throttled IPC dispatcher: at most 1 dispatch per 35ms (~28fps backend updates)
+  const dispatchVolume = useCallback((val: number, immediate = false) => {
+    pendingVolumeRef.current = val;
+
+    if (immediate) {
+      if (throttleTimerRef.current !== null) {
+        window.clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
+      }
+      lastDispatchedVolumeRef.current = val;
+      onVolumeChangeRef.current(val);
+      return;
+    }
+
+    if (throttleTimerRef.current === null) {
+      lastDispatchedVolumeRef.current = val;
+      onVolumeChangeRef.current(val);
+
+      throttleTimerRef.current = window.setTimeout(() => {
+        throttleTimerRef.current = null;
+        if (pendingVolumeRef.current !== null && pendingVolumeRef.current !== lastDispatchedVolumeRef.current) {
+          lastDispatchedVolumeRef.current = pendingVolumeRef.current;
+          onVolumeChangeRef.current(pendingVolumeRef.current);
+        }
+      }, 35);
+    }
+  }, []);
+
+  const calculateVolumeFromX = useCallback((clientX: number): number => {
+    if (!trackRef.current) return currentVolumeRef.current;
+    const rect = trackRectRef.current || trackRef.current.getBoundingClientRect();
+    if (!rect || rect.width <= 0) return currentVolumeRef.current;
+
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return Math.max(0, Math.min(100, Math.round(ratio * 100)));
+  }, []);
+
+  const applyVolume = useCallback((val: number, immediate = false) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(val)));
+    currentVolumeRef.current = clamped;
+
+    if (fillRef.current) {
+      fillRef.current.style.width = `${clamped}%`;
+    }
+    if (thumbRef.current) {
+      thumbRef.current.style.left = `${clamped}%`;
+    }
+    setLocalVolume(clamped);
+    dispatchVolume(clamped, immediate);
+  }, [dispatchVolume]);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // Only drag on primary left mouse button
+    if (e.button !== 0) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Cache track dimensions at the start of drag
+    if (trackRef.current) {
+      trackRectRef.current = trackRef.current.getBoundingClientRect();
+    }
+
+    isDraggingRef.current = true;
+    setIsDragging(true);
+    onDragStateChangeRef.current?.(true);
+
+    const target = e.currentTarget;
+    const pointerId = e.pointerId;
+
+    try {
+      target.setPointerCapture(pointerId);
+    } catch {}
+
+    // Calculate initial click value and update immediately
+    const startVal = calculateVolumeFromX(e.clientX);
+    applyVolume(startVal, false);
+
+    const onPointerMove = (ev: PointerEvent) => {
+      if (!isDraggingRef.current) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      const nextVal = calculateVolumeFromX(ev.clientX);
+      applyVolume(nextVal, false);
+    };
+
+    const onPointerEnd = (ev: PointerEvent) => {
+      if (!isDraggingRef.current) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      isDraggingRef.current = false;
+      setIsDragging(false);
+      onDragStateChangeRef.current?.(false);
+      trackRectRef.current = null;
+
+      try {
+        if (target.hasPointerCapture(pointerId)) {
+          target.releasePointerCapture(pointerId);
+        }
+      } catch {}
+
+      target.removeEventListener("pointermove", onPointerMove);
+      target.removeEventListener("pointerup", onPointerEnd);
+      target.removeEventListener("pointercancel", onPointerEnd);
+      target.removeEventListener("lostpointercapture", onPointerEnd);
+      window.removeEventListener("pointermove", onPointerMove, true);
+      window.removeEventListener("pointerup", onPointerEnd, true);
+      window.removeEventListener("pointercancel", onPointerEnd, true);
+
+      // Commit final volume immediately on release
+      const finalVal = calculateVolumeFromX(ev.clientX);
+      applyVolume(finalVal, true);
+    };
+
+    target.addEventListener("pointermove", onPointerMove);
+    target.addEventListener("pointerup", onPointerEnd);
+    target.addEventListener("pointercancel", onPointerEnd);
+    target.addEventListener("lostpointercapture", onPointerEnd);
+    window.addEventListener("pointermove", onPointerMove, { capture: true, passive: false });
+    window.addEventListener("pointerup", onPointerEnd, { capture: true });
+    window.addEventListener("pointercancel", onPointerEnd, { capture: true });
+  };
+
+  // Teardown ONLY on unmount
+  useEffect(() => {
+    return () => {
+      if (throttleTimerRef.current !== null) {
+        window.clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
+      }
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        onDragStateChangeRef.current?.(false);
+      }
+    };
+  }, []);
+
+  return (
+    <motion.div
+      key="compact-volume-slider"
+      className={`compact-volume-slider-bar ${isDragging ? "is-dragging" : ""}`}
+      initial={{ opacity: 0, width: 0, scale: 0.94 }}
+      animate={{ opacity: 1, width: 88, scale: 1 }}
+      exit={{ opacity: 0, width: 0, scale: 0.94 }}
+      transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+      onPointerDown={handlePointerDown}
+      title={`Volume: ${localVolume}%`}
+    >
+      <div
+        className={`compact-volume-track ${isDragging ? "is-dragging" : ""}`}
+        ref={trackRef}
+      >
+        <div
+          ref={fillRef}
+          className="compact-volume-fill"
+          style={{ width: `${localVolume}%` }}
+        />
+        <div
+          ref={thumbRef}
+          className="compact-volume-thumb"
+          style={{ left: `${localVolume}%` }}
+        />
+      </div>
+    </motion.div>
+  );
+});
 
 function SpotifyBadgeSvg({ size = 20 }: { size?: number }) {
   return (
@@ -387,6 +612,18 @@ function YouTubeBadgeSvg({ size = 20 }: { size?: number }) {
   );
 }
 
+function GenericMusicBadgeSvg({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="12" fill="#0a84ff" />
+      <path
+        d="M12 4v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V8h4V4h-6z"
+        fill="#ffffff"
+      />
+    </svg>
+  );
+}
+
 function MediaSourceBadge({ source, size = 20 }: { source?: string; size?: number }) {
   const s = (source || "").toLowerCase();
   if (s.includes("spotify")) {
@@ -395,8 +632,10 @@ function MediaSourceBadge({ source, size = 20 }: { source?: string; size?: numbe
   if (s.includes("apple")) {
     return <AppleMusicBadgeSvg size={size} />;
   }
-  // Default to YouTube for youtube, browser tabs, or generic media
-  return <YouTubeBadgeSvg size={size} />;
+  if (s.includes("youtube")) {
+    return <YouTubeBadgeSvg size={size} />;
+  }
+  return <GenericMusicBadgeSvg size={size} />;
 }
 
 // Quick Action Icon SVGs
@@ -439,6 +678,88 @@ function FocusSvg() {
   );
 }
 
+// Developer Coding Agent Icons & Status Glyphs
+function AntigravityGlyph({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#e07a5f" strokeWidth="2.4" strokeLinecap="round">
+      <line x1="12" y1="2" x2="12" y2="22" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+      <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+      <line x1="19.07" y1="4.93" x2="4.93" y2="19.07" />
+    </svg>
+  );
+}
+
+function ClaudeGlyph({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.2" strokeLinecap="round">
+      <circle cx="12" cy="12" r="4" fill="#d97706" />
+      <line x1="12" y1="2" x2="12" y2="6" />
+      <line x1="12" y1="18" x2="12" y2="22" />
+      <line x1="2" y1="12" x2="6" y2="12" />
+      <line x1="18" y1="12" x2="22" y2="12" />
+    </svg>
+  );
+}
+
+function CodexGlyph({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#10a37f" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 14a4 4 0 1 1 4-4 4 4 0 0 1-4 4z" />
+    </svg>
+  );
+}
+
+function AgentBrandIcon({ agentId, size = 18 }: { agentId?: string; size?: number }) {
+  if (agentId === "claude") return <ClaudeGlyph size={size} />;
+  if (agentId === "codex") return <CodexGlyph size={size} />;
+  return <AntigravityGlyph size={size} />;
+}
+
+function AgentStatusGlyph({ status, size = 16 }: { status: AgentStatus; size?: number }) {
+  if (status === "completed") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 20 20" fill="none">
+        <circle cx="10" cy="10" r="8" fill="rgba(52, 199, 89, 0.22)" stroke="#34c759" strokeWidth="1.8" />
+        <path d="M6.5 10.2L8.8 12.5L13.5 7.8" stroke="#34c759" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (status === "waiting") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 20 20" fill="none">
+        <circle cx="10" cy="10" r="8" fill="rgba(255, 189, 46, 0.22)" stroke="#ffbd2e" strokeWidth="1.8" />
+        <circle cx="10" cy="10" r="2.5" fill="#ffbd2e" />
+      </svg>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 20 20" fill="none">
+        <circle cx="10" cy="10" r="8" fill="rgba(255, 69, 58, 0.22)" stroke="#ff453a" strokeWidth="1.8" />
+        <path d="M10 6v5M10 14h.01" stroke="#ff453a" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  return null;
+}
+
+function SwapArrowsIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4" />
+    </svg>
+  );
+}
+
+function formatElapsed(startedAt?: number): string {
+  if (!startedAt) return "0:00";
+  const sec = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${s < 10 ? "0" : ""}${s}`;
+}
+
 
 // Quick Action Button — Smooth hover + scale with badge
 function QuickIconBtn({
@@ -461,10 +782,11 @@ function QuickIconBtn({
       id={id}
       className={`quick-icon-btn ${active ? "active" : ""}`}
       title={label}
+      aria-label={label}
       onClick={onClick}
-      whileHover={{ scale: 1.15, y: -1 }}
-      whileTap={{ scale: 0.88 }}
-      transition={{ type: "spring", stiffness: 500, damping: 22, mass: 0.5 }}
+      whileHover={{ scale: 1.08 }}
+      whileTap={{ scale: 0.92 }}
+      transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
     >
       <span className="quick-icon-svg">{icon}</span>
       {count != null && count > 0 && (
@@ -830,9 +1152,7 @@ function CustomTimerDial({
       {/* Top Header Row */}
       <div className="timer-setup-header" onPointerDown={(e) => e.stopPropagation()}>
         <button className="timer-nav-btn timer-back-btn" onClick={onBackToTools} title="Back to Quick Tools" aria-label="Back to Tools">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" className="timer-back-arrow">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
+          <ToolsGridIcon />
           <span>Tools</span>
         </button>
         <span className="timer-setup-title">Set Timer</span>
@@ -989,9 +1309,10 @@ interface ScreenTimePanelProps {
   onSwitchToMusic?: () => void;
   hasActiveMedia?: boolean;
   songTitle?: string;
+  mediaSource?: string;
 }
 
-function ScreenTimePanel({ onBackToTools, onClose, onSwitchToMusic, hasActiveMedia, songTitle }: ScreenTimePanelProps) {
+function ScreenTimePanel({ onBackToTools, onClose, onSwitchToMusic, hasActiveMedia, songTitle, mediaSource }: ScreenTimePanelProps) {
   const [hoveredDay, setHoveredDay] = useState<string | null>(null);
   const [data, setData] = useState<ScreenTimeData>(getInitialScreenTimeData);
 
@@ -1045,19 +1366,7 @@ function ScreenTimePanel({ onBackToTools, onClose, onSwitchToMusic, hasActiveMed
             title="Back to Quick Tools"
             aria-label="Back to Tools"
           >
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="timer-back-arrow"
-            >
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
+            <ToolsGridIcon />
             <span>Tools</span>
           </button>
           {hasActiveMedia && onSwitchToMusic && (
@@ -1065,10 +1374,9 @@ function ScreenTimePanel({ onBackToTools, onClose, onSwitchToMusic, hasActiveMed
               className="timer-nav-btn"
               onClick={onSwitchToMusic}
               title={`Switch to: ${songTitle || "Song"}`}
+              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
             >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: 2 }}>
-                <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
-              </svg>
+              <MediaSourceBadge source={mediaSource} size={14} />
               <span>Song</span>
             </button>
           )}
@@ -1330,15 +1638,6 @@ function useLiveTimeAndWeather() {
   return { time, weather };
 }
 
-type DragState = {
-  active: boolean;
-  moved: boolean;
-  startX: number;
-  startY: number;
-  pointerId: number;
-  frame: number | null;
-};
-
 type InteractionState = "collapsed" | "expanding" | "expanded" | "collapsing";
 
 export type StoredImage = {
@@ -1352,8 +1651,10 @@ export type StoredImage = {
 
 export function App() {
   const [state, setState] = useState<InteractionState>("collapsed");
-  const [activeTab, setActiveTab] = useState<"music" | "shelf" | "tools" | "timer" | "screentime">("tools");
+  const [activeTab, setActiveTab] = useState<"music" | "shelf" | "tools" | "timer" | "screentime" | "agent">("tools");
   const [media, setMedia] = useState<MediaState | null>(null);
+  const [agentState, setAgentState] = useState<AgentState | null>(null);
+  const [, setAgentTicker] = useState(0);
   const [isSwitching, setIsSwitching] = useState(false);
   const { time, weather } = useLiveTimeAndWeather();
   const { currentPositionMs, seekTo } = usePlaybackClock(media);
@@ -1393,19 +1694,9 @@ export function App() {
 
   // Compact Volume Slider state & interactions
   const [isVolumeOpen, setIsVolumeOpen] = useState(false);
-  const [volumeOverride, setVolumeOverride] = useState<number | null>(null);
-  const volumeTrackRef = useRef<HTMLDivElement | null>(null);
+  const [activeVolume, setActiveVolume] = useState<number>(() => media?.volume ?? 50);
   const isAdjustingVolumeRef = useRef(false);
-
-  const drag = useRef<DragState>({
-    active: false,
-    moved: false,
-    startX: 0,
-    startY: 0,
-    pointerId: -1,
-    frame: null
-  });
-  const latestPoint = useRef({ screenX: 0, screenY: 0 });
+  const lastVolumeUserChangeTimeRef = useRef(0);
 
   const isExpanded = state === "expanded" || state === "expanding";
   const isCollapsing = state === "collapsing";
@@ -1414,6 +1705,32 @@ export function App() {
   const hasActiveMedia = Boolean(
     isSwitching || (media && (media.status === "playing" || (media.status === "paused" && media.title)))
   );
+
+  // Active AI Developer Agent Detection
+  const activeAgent = agentState?.activeAgent || null;
+  const isAgentWorking = Boolean(
+    activeAgent &&
+    activeAgent.status !== "idle" &&
+    activeAgent.status !== "unknown"
+  );
+  const isDualMode = Boolean(isAgentWorking && hasActiveMedia && media);
+  const primaryMode = agentState?.primaryMode ?? "agent";
+
+  // Real-time 1s ticker for elapsed agent duration
+  useEffect(() => {
+    if (!isAgentWorking) return;
+    const tickerInterval = setInterval(() => {
+      setAgentTicker((t) => t + 1);
+    }, 1000);
+    return () => clearInterval(tickerInterval);
+  }, [isAgentWorking]);
+
+  const handleSwapPrimary = useCallback((e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    window.islet?.agents?.swapPrimary?.().then((nextState) => {
+      if (nextState) setAgentState(nextState);
+    }).catch(console.error);
+  }, []);
 
   useEffect(() => {
     const api = window.islet;
@@ -1434,7 +1751,7 @@ export function App() {
         }
         setIsSwitching(false);
         setMedia(nextMedia);
-        setActiveTab((prev) => (prev === "shelf" || prev === "timer" || prev === "screentime" ? prev : "music"));
+        setActiveTab((prev) => (prev === "shelf" || prev === "timer" || prev === "screentime" || prev === "tools" || prev === "agent" ? prev : "music"));
       } else {
         if (mediaClearTimer.current) {
           clearTimeout(mediaClearTimer.current);
@@ -1442,8 +1759,16 @@ export function App() {
         }
         setMedia(null);
         setIsSwitching(false);
-        setActiveTab((prev) => (prev === "shelf" || prev === "timer" || prev === "screentime" ? prev : "tools"));
+        setActiveTab((prev) => (prev === "shelf" || prev === "timer" || prev === "screentime" || prev === "agent" ? prev : "tools"));
       }
+    });
+
+    void api.agents?.getState?.().then((st) => {
+      if (st) setAgentState(st);
+    });
+
+    const unsubscribeAgents = api.agents?.subscribe?.((nextState) => {
+      if (nextState) setAgentState(nextState);
     });
 
     const removeExpanded = api.window.onExpanded(() => {
@@ -1467,6 +1792,7 @@ export function App() {
 
     return () => {
       unsubscribeMedia();
+      if (typeof unsubscribeAgents === "function") unsubscribeAgents();
       removeExpanded();
       removeStartCollapse();
       removeBlurred();
@@ -1475,12 +1801,21 @@ export function App() {
     };
   }, [isExpanded]);
 
-  const [isFavorite, setIsFavorite] = useState(false);
-
-  const switchTab = (tab: "music" | "shelf" | "tools" | "timer" | "screentime") => {
+  const switchTab = (tab: "music" | "shelf" | "tools" | "timer" | "screentime" | "agent") => {
     setActiveTab(tab);
     if (isExpanded) {
-      const h = tab === "shelf" ? 116 : tab === "timer" ? 118 : tab === "screentime" ? 134 : tab === "music" ? 152 : 48;
+      const h =
+        tab === "shelf"
+          ? 176
+          : tab === "timer"
+          ? 118
+          : tab === "screentime"
+          ? 134
+          : tab === "agent"
+          ? (hasActiveMedia && media ? 204 : 160)
+          : tab === "music"
+          ? 152
+          : 48;
       void window.islet.window.setExpanded(true, h);
     }
   };
@@ -1496,10 +1831,13 @@ export function App() {
     setState("expanding");
     window.islet?.window?.setIgnoreMouseEvents?.(false);
     const h = panelHeight || (
-      activeTab === "shelf" ? 116 :
+      activeTab === "shelf" ? 176 :
         activeTab === "timer" ? 118 :
           activeTab === "screentime" ? 134 :
-            activeTab === "music" && hasActiveMedia ? 152 : 48
+            activeTab === "agent" ? (hasActiveMedia && media ? 204 : 160) :
+              activeTab === "music" && hasActiveMedia ? 152 :
+                isAgentWorking && primaryMode === "agent" ? (hasActiveMedia && media ? 204 : 160) :
+                  48
     );
     void window.islet.window.setExpanded(true, h).catch((err: unknown) => {
       console.error("Expand failed:", err);
@@ -1508,49 +1846,24 @@ export function App() {
     });
   }, [activeTab, hasActiveMedia]);
 
-  // Synchronize volumeOverride with external volume updates
+  // Synchronize activeVolume with external volume updates (ignoring stale backend responses during/after user interaction)
   useEffect(() => {
-    if (!isAdjustingVolumeRef.current) {
-      setVolumeOverride(null);
+    if (typeof media?.volume === "number") {
+      if (!isAdjustingVolumeRef.current && Date.now() - lastVolumeUserChangeTimeRef.current >= 1200) {
+        setActiveVolume(media.volume);
+      }
     }
   }, [media?.volume]);
 
-  const updateVolumeFromPointer = useCallback((clientX: number) => {
-    if (!volumeTrackRef.current) return;
-    const rect = volumeTrackRef.current.getBoundingClientRect();
-    if (rect.width <= 0) return;
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    const newVol = Math.round(ratio * 100);
-    setVolumeOverride(newVol);
+  const handleVolumeChange = useCallback((newVol: number) => {
+    lastVolumeUserChangeTimeRef.current = Date.now();
+    setActiveVolume(newVol);
     void window.islet?.media?.setVolume?.(newVol);
   }, []);
 
-  const handleVolumePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    e.preventDefault();
-    isAdjustingVolumeRef.current = true;
-    updateVolumeFromPointer(e.clientX);
-
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      moveEvent.stopPropagation();
-      moveEvent.preventDefault();
-      updateVolumeFromPointer(moveEvent.clientX);
-    };
-
-    const onPointerUp = (upEvent: PointerEvent) => {
-      upEvent.stopPropagation();
-      isAdjustingVolumeRef.current = false;
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerUp);
-    };
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerUp);
-  }, [updateVolumeFromPointer]);
-
-  const currentVolume = volumeOverride !== null ? volumeOverride : (media?.volume ?? 50);
+  const handleDragStateChange = useCallback((dragging: boolean) => {
+    isAdjustingVolumeRef.current = dragging;
+  }, []);
 
   const triggerCollapse = useCallback(() => {
     if (stateRef.current === "collapsed" || stateRef.current === "collapsing") return;
@@ -1631,7 +1944,7 @@ export function App() {
     if (isAdjustingVolumeRef.current || isDraggingFileRef.current) {
       return;
     }
-    // Smooth hover-exit delay: 120ms gives natural grace without laggy hang
+    // Smooth hover-exit delay: 220ms gives natural grace without accidental collapse
     if (!hoverCollapseTimer.current) {
       hoverCollapseTimer.current = window.setTimeout(() => {
         hoverCollapseTimer.current = null;
@@ -1640,7 +1953,7 @@ export function App() {
             triggerCollapse();
           }
         }
-      }, 120);
+      }, 220);
     }
   }, [triggerCollapse]);
 
@@ -1891,7 +2204,16 @@ export function App() {
   const isShelfActive = activeTab === "shelf" && storedImages.length > 0;
   const isTimerActive = activeTab === "timer";
   const isScreenTimeActive = activeTab === "screentime";
-  const isMusicActive = Boolean(hasActiveMedia && media && activeTab !== "shelf" && activeTab !== "tools" && activeTab !== "timer" && activeTab !== "screentime");
+  const isAgentActive = Boolean(
+    activeAgent && (
+      activeTab === "agent" ||
+      (isAgentWorking && primaryMode === "agent" && activeTab !== "shelf" && activeTab !== "tools" && activeTab !== "timer" && activeTab !== "screentime")
+    )
+  );
+  const isMusicActive = Boolean(
+    hasActiveMedia && media && !isAgentActive &&
+    activeTab !== "shelf" && activeTab !== "tools" && activeTab !== "timer" && activeTab !== "screentime"
+  );
   // Show collapsed timer capsule when timer is active (running or paused)
   const showCollapsedTimer = isTimerActiveSession;
 
@@ -1902,9 +2224,9 @@ export function App() {
 
   if (isExpanded && !isCollapsing) {
     if (isShelfActive) {
-      targetWidth = 370;
-      targetHeight = 110;
-      targetRadius = "26px";
+      targetWidth = 372;
+      targetHeight = 176;
+      targetRadius = "28px";
     } else if (isTimerActive) {
       targetWidth = 356;
       targetHeight = 118;
@@ -1913,23 +2235,35 @@ export function App() {
       targetWidth = 356;
       targetHeight = 134;
       targetRadius = "28px";
+    } else if (isAgentActive) {
+      targetWidth = 372;
+      targetHeight = hasActiveMedia && media ? 204 : 160;
+      targetRadius = "28px";
     } else if (isMusicActive) {
       targetWidth = 368;
       targetHeight = 152;
       targetRadius = "28px";
     } else {
       // Short, sleek Quick Actions Bar — only 48px high!
-      targetWidth = 340;
+      targetWidth = 356;
       targetHeight = 48;
       targetRadius = "24px"; // Perfectly continuous semicircle pill ends!
     }
   } else {
-    if (showCollapsedTimer) {
+    if (isDualMode) {
+      targetWidth = 364;
+      targetHeight = 44;
+      targetRadius = "22px";
+    } else if (isAgentWorking) {
+      targetWidth = 330;
+      targetHeight = 42;
+      targetRadius = "21px";
+    } else if (showCollapsedTimer) {
       targetWidth = 200;
       targetHeight = 38;
       targetRadius = "19px";
     } else if (hasActiveMedia && media) {
-      // Screenshot 1 replica: Sleek music pill (356px x 44px with 22px continuous pill radius)
+      // Sleek music pill (356px x 44px with 22px continuous pill radius)
       targetWidth = 356;
       targetHeight = 44;
       targetRadius = "22px";
@@ -1967,11 +2301,11 @@ export function App() {
         transition={
           isCollapsing
             ? {
-                duration: 0.36,
+                duration: 0.28,
                 ease: [0.32, 0.72, 0, 1]
               }
             : {
-                duration: 0.28,
+                duration: 0.26,
                 ease: [0.16, 1, 0.3, 1]
               }
         }
@@ -2039,24 +2373,23 @@ export function App() {
                   </div>
 
                   <div className="shelf-header-actions" onPointerDown={(e) => e.stopPropagation()}>
-                    {/* Back to Song toggle button when music is active, or Tools if no media */}
-                    {hasActiveMedia && media ? (
+                    <button
+                      className="shelf-song-btn shelf-tools-btn"
+                      onClick={() => switchTab("tools")}
+                      title="Back to Tools"
+                    >
+                      <ToolsGridIcon />
+                      <span>Tools</span>
+                    </button>
+                    {hasActiveMedia && media && (
                       <button
                         className="shelf-song-btn"
                         onClick={() => switchTab("music")}
                         title={`Back to: ${media.title}`}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
                       >
-                        <span className="song-icon">◀ ♫</span>
-                        <span>Song</span>
-                      </button>
-                    ) : (
-                      <button
-                        className="shelf-song-btn"
-                        onClick={() => switchTab("tools")}
-                        title="Back to Tools"
-                      >
-                        <span className="song-icon">◀ ✦</span>
-                        <span>Tools</span>
+                        <MediaSourceBadge source={media.source} size={15} />
+                        <span className="shelf-song-title">Song</span>
                       </button>
                     )}
                     <button className="shelf-clear-btn" onClick={clearAllStoredImages}>
@@ -2104,8 +2437,7 @@ export function App() {
                   className={`shelf-dropzone ${isDraggingFile ? "dragover" : ""}`}
                   onPointerDown={(e) => e.stopPropagation()}
                 >
-                  <span>📥</span>
-                  <span>Drop more images to store</span>
+                  <span>Drop your images</span>
                 </div>
               </motion.div>
             ) : isTimerActive ? (
@@ -2180,9 +2512,7 @@ export function App() {
                         title="Back to Quick Tools"
                         aria-label="Back to Tools"
                       >
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" className="timer-back-arrow">
-                          <polyline points="15 18 9 12 15 6" />
-                        </svg>
+                        <ToolsGridIcon />
                         <span>Tools</span>
                       </button>
                       {hasActiveMedia && media && (
@@ -2190,10 +2520,9 @@ export function App() {
                           className="timer-nav-btn"
                           onClick={() => switchTab("music")}
                           title={`Switch to: ${media.title}`}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
                         >
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: 2 }}>
-                            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
-                          </svg>
+                          <MediaSourceBadge source={media.source} size={14} />
                           <span>Song</span>
                         </button>
                       )}
@@ -2274,7 +2603,113 @@ export function App() {
                 onSwitchToMusic={() => switchTab("music")}
                 hasActiveMedia={hasActiveMedia}
                 songTitle={media?.title}
+                mediaSource={media?.source}
               />
+            ) : isAgentActive && activeAgent ? (
+              /* =================================================================
+                 EXPANDED DEVELOPER AGENT ACTIVITY PANEL
+                 ================================================================= */
+              <motion.div
+                key="expanded-agent"
+                className="expanded-agent-panel"
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={{ duration: 0.18, ease: [0.32, 0.72, 0, 1] }}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                {/* Top Row: Brand & Name, Status Pill, and Actions */}
+                <div className="agent-panel-header">
+                  <div className="agent-panel-brand">
+                    <AgentBrandIcon agentId={activeAgent.agentId} size={20} />
+                    <span className="agent-panel-name">{activeAgent.agentName}</span>
+                    <span className={`agent-status-pill is-${activeAgent.status}`}>
+                      {activeAgent.statusText || activeAgent.status}
+                    </span>
+                  </div>
+
+                  <div className="agent-panel-actions">
+                    {hasActiveMedia && media && (
+                      <button
+                        className="agent-panel-swap-btn"
+                        onClick={handleSwapPrimary}
+                        title="Swap focus to Spotify"
+                      >
+                        <SwapArrowsIcon size={12} />
+                        <span>Music</span>
+                      </button>
+                    )}
+                    <button
+                      className="music-tools-btn"
+                      onClick={() => switchTab("tools")}
+                      title="Open Tools"
+                      aria-label="Tools"
+                    >
+                      <ToolsGridIcon />
+                    </button>
+                    <button
+                      className="music-close-btn"
+                      onClick={triggerCollapse}
+                      title="Minimize to capsule (Esc)"
+                      aria-label="Minimize"
+                    >
+                      <CloseIcon />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Center Card: Active Task and Details */}
+                <div className="agent-panel-card">
+                  <div className="agent-task-title" title={activeAgent.taskTitle || "Agent Task"}>
+                    {activeAgent.taskTitle || "Processing Assistant Instructions"}
+                  </div>
+                  <div className="agent-task-meta">
+                    <div className="agent-active-action">
+                      {activeAgent.status === "completed" ? (
+                        <AgentStatusGlyph status="completed" size={14} />
+                      ) : (
+                        <span
+                          className="agent-tool-dot"
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: "50%",
+                            background: activeAgent.status === "waiting" ? "#ffbd2e" : activeAgent.status === "failed" ? "#ff453a" : "#ea580c",
+                            boxShadow: "0 0 6px currentColor"
+                          }}
+                        />
+                      )}
+                      <span>{activeAgent.activeTool || (activeAgent.status === "completed" ? "Task Complete" : "Thinking...")}</span>
+                    </div>
+                    <span className="agent-duration">
+                      {formatElapsed(activeAgent.startedAt)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Bottom: Spotify Playback Mini-Strip if active */}
+                {hasActiveMedia && media && (
+                  <div className="agent-spotify-strip" onClick={() => switchTab("music")} title="Click to open full player">
+                    <div className="agent-spotify-left">
+                      <MediaSourceBadge source={media.source} size={20} />
+                      <div className="agent-spotify-text">
+                        <span className="agent-spotify-title">{media.title}</span>
+                        <span className="agent-spotify-artist">{media.artist || "Unknown Artist"}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <MicroEq />
+                      <button
+                        className="agent-spotify-play-btn"
+                        onClick={handlePlayPause}
+                        title={isPlaying ? "Pause" : "Play"}
+                      >
+                        {isPlaying ? <ApplePauseIcon /> : <ApplePlayIcon />}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
             ) : isMusicActive && media ? (
               /* =================================================================
                  EXPANDED MUSIC PLAYER (Screenshot 2 exact replica)
@@ -2320,33 +2755,54 @@ export function App() {
                   <div className="expanded-music-top-right" onPointerDown={(e) => e.stopPropagation()}>
                     <AnimatePresence>
                       {isVolumeOpen && (
-                        <motion.div
-                          key="compact-volume-slider"
-                          className="compact-volume-slider-bar"
-                          initial={{ opacity: 0, width: 0, scale: 0.9 }}
-                          animate={{ opacity: 1, width: 84, scale: 1 }}
-                          exit={{ opacity: 0, width: 0, scale: 0.9 }}
-                          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                          onPointerDown={(e) => e.stopPropagation()}
-                        >
-                          <div
-                            className="compact-volume-track"
-                            ref={volumeTrackRef}
-                            onPointerDown={handleVolumePointerDown}
-                            title={`Volume: ${Math.round(currentVolume)}%`}
-                          >
-                            <div
-                              className="compact-volume-fill"
-                              style={{ width: `${Math.max(0, Math.min(100, currentVolume))}%` }}
-                            />
-                            <div
-                              className="compact-volume-thumb"
-                              style={{ left: `${Math.max(0, Math.min(100, currentVolume))}%` }}
-                            />
-                          </div>
-                        </motion.div>
+                        <CompactVolumeSlider
+                          volume={activeVolume}
+                          onVolumeChange={handleVolumeChange}
+                          onDragStateChange={handleDragStateChange}
+                        />
                       )}
                     </AnimatePresence>
+
+                    {/* Agent Activity Shortcut (When Agent Active) */}
+                    {isAgentWorking && (
+                      <button
+                        className="music-agent-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          switchTab("agent");
+                        }}
+                        title={`Agent active: ${activeAgent?.agentName} (${activeAgent?.status}) — View`}
+                        aria-label="Agent"
+                        style={{
+                          width: 22,
+                          height: 22,
+                          borderRadius: "50%",
+                          background: "rgba(255, 255, 255, 0.08)",
+                          border: "1px solid rgba(255, 255, 255, 0.12)",
+                          color: "rgba(255, 255, 255, 0.72)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          cursor: "pointer",
+                          padding: 0
+                        }}
+                      >
+                        <AgentBrandIcon agentId={activeAgent?.agentId} size={14} />
+                      </button>
+                    )}
+
+                    {/* Tools Navigation Button */}
+                    <button
+                      className="music-tools-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        switchTab("tools");
+                      }}
+                      title="Open Tools"
+                      aria-label="Tools"
+                    >
+                      <ToolsGridIcon />
+                    </button>
 
                     <button
                       className={`music-soundwave-btn ${isVolumeOpen ? "is-active" : ""}`}
@@ -2354,7 +2810,7 @@ export function App() {
                         e.stopPropagation();
                         setIsVolumeOpen((prev) => !prev);
                       }}
-                      title={isVolumeOpen ? "Hide Volume" : `Volume: ${Math.round(currentVolume)}%`}
+                      title={isVolumeOpen ? "Hide Volume" : `Volume: ${Math.round(activeVolume)}%`}
                       aria-label="Volume"
                     >
                       <SoundWaveIcon />
@@ -2440,10 +2896,10 @@ export function App() {
               <motion.div
                 key="expanded-quick-tools"
                 className="expanded-quickbar-panel"
-                initial={{ opacity: 0, scale: 0.97 }}
+                initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.97 }}
-                transition={{ duration: 0.18, ease: [0.32, 0.72, 0, 1] }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
               >
                 {/* Brand Logo */}
                 <div className="quickbar-brand" onPointerDown={(e) => e.stopPropagation()}>
@@ -2460,9 +2916,7 @@ export function App() {
                     count={storedImages.length}
                     active={activeTab === "shelf"}
                     onClick={() => {
-                      if (storedImages.length > 0) {
-                        switchTab("shelf");
-                      }
+                      switchTab("shelf");
                     }}
                   />
 
@@ -2471,11 +2925,12 @@ export function App() {
                     id="qi-timer"
                     className={`quick-icon-btn ${isTimerActiveSession ? "active timer-running" : ""}`}
                     title={isTimerActiveSession ? `Timer: ${formatTimer(timerSeconds)} (${isTimerRunning ? "Running" : "Paused"})` : `Custom Timer`}
+                    aria-label="Timer"
                     onClick={() => {
                       switchTab("timer");
                     }}
-                    whileHover={{ scale: 1.15, y: -1 }}
-                    whileTap={{ scale: 0.9 }}
+                    whileHover={{ scale: 1.08 }}
+                    whileTap={{ scale: 0.92 }}
                     transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
                   >
                     <span className="quick-icon-svg"><TimerSvg /></span>
@@ -2489,11 +2944,12 @@ export function App() {
                     id="qi-screentime"
                     className="quick-icon-btn"
                     title="Screen Time"
+                    aria-label="Screen Time"
                     onClick={() => {
                       switchTab("screentime");
                     }}
-                    whileHover={{ scale: 1.15, y: -1 }}
-                    whileTap={{ scale: 0.9 }}
+                    whileHover={{ scale: 1.08 }}
+                    whileTap={{ scale: 0.92 }}
                     transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
                   >
                     <span className="quick-icon-svg"><ScreenTimeSvg /></span>
@@ -2504,27 +2960,65 @@ export function App() {
                     id="qi-focus"
                     className={`quick-icon-btn ${isFocusOn ? "active focus-active" : ""}`}
                     title={isFocusOn ? "Focus Mode: Active (Click to turn off)" : "Turn on Focus Mode"}
+                    aria-label="Focus Mode"
                     onClick={() => setIsFocusOn((prev) => !prev)}
-                    whileHover={{ scale: 1.15, y: -1 }}
-                    whileTap={{ scale: 0.9 }}
+                    whileHover={{ scale: 1.08 }}
+                    whileTap={{ scale: 0.92 }}
                     transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
                   >
                     <span className="quick-icon-svg"><FocusSvg /></span>
                     {isFocusOn && <span className="focus-indicator-dot" />}
                   </motion.button>
 
+                  {/* Agent Activity Indicator & Tab Switch */}
+                  {isAgentWorking && (
+                    <motion.button
+                      id="qi-agent"
+                      className="quick-icon-btn active"
+                      title={`Agent: ${activeAgent?.agentName} (${activeAgent?.statusText || activeAgent?.status})`}
+                      aria-label="Agent Activity"
+                      onClick={() => switchTab("agent")}
+                      whileHover={{ scale: 1.08 }}
+                      whileTap={{ scale: 0.92 }}
+                      transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
+                    >
+                      <span className="quick-icon-svg">
+                        <AgentBrandIcon agentId={activeAgent?.agentId} size={15} />
+                      </span>
+                      {activeAgent?.status === "completed" ? (
+                        <span className="focus-indicator-dot" style={{ background: "#34c759" }} />
+                      ) : (
+                        <span className="focus-indicator-dot" style={{ background: "#ea580c" }} />
+                      )}
+                    </motion.button>
+                  )}
+
                 </div>
 
-                {/* Close Button on far right */}
-                <button
-                  className="quickbar-close-btn"
-                  onClick={triggerCollapse}
-                  title="Close (Esc)"
-                  aria-label="Close"
-                  onPointerDown={(e) => e.stopPropagation()}
-                >
-                  <CloseIcon />
-                </button>
+                {/* Right controls: Media Return Button (when music active) & Close Button */}
+                <div className="quickbar-right-actions" onPointerDown={(e) => e.stopPropagation()}>
+                  {hasActiveMedia && media && (
+                    <motion.button
+                      className="quickbar-media-return-btn"
+                      onClick={() => switchTab("music")}
+                      title={`Return to: ${media.title} (${media.source === "spotify" ? "Spotify" : media.source === "youtube" ? "YouTube" : media.source === "apple-music" ? "Apple Music" : "Music"})`}
+                      aria-label="Return to Music Player"
+                      whileHover={{ scale: 1.10 }}
+                      whileTap={{ scale: 0.92 }}
+                      transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
+                    >
+                      <MediaSourceBadge source={media.source} size={20} />
+                    </motion.button>
+                  )}
+                  <button
+                    className="quickbar-close-btn"
+                    onClick={triggerCollapse}
+                    title="Close (Esc)"
+                    aria-label="Close"
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
               </motion.div>
             )
           ) : showCollapsedTimer ? (
@@ -2536,7 +3030,7 @@ export function App() {
               className="capsule-timer-bar"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              exit={{ opacity: 0, transition: { duration: 0.06, delay: 0 } }}
               whileHover={{ scale: 1.02 }}
               transition={{
                 opacity: { duration: 0.24, delay: 0.10, ease: [0.32, 0.72, 0, 1] }
@@ -2570,6 +3064,165 @@ export function App() {
                 <span className="collapsed-timer-time">{formatTimer(timerSeconds)}</span>
               </div>
             </motion.div>
+          ) : isDualMode ? (
+            /* =================================================================
+               COLLAPSED DUAL ACTIVITY CAPSULE: [ Agent / Spotify ] [ ⇄ ] [ Secondary ]
+               ================================================================= */
+            <motion.div
+              key="collapsed-dual"
+              className="capsule-dual-bar"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0, transition: { duration: 0.06, delay: 0 } }}
+              whileHover={{ scale: 1.015 }}
+              transition={{
+                opacity: { duration: 0.24, delay: 0.10, ease: [0.32, 0.72, 0, 1] }
+              }}
+              onClick={() => {
+                setActiveTab(primaryMode === "agent" ? "agent" : "music");
+                triggerExpand(primaryMode === "agent" ? 204 : 152);
+              }}
+              title={
+                primaryMode === "agent"
+                  ? `Agent primary: ${activeAgent?.activeTool || activeAgent?.agentName} • Click swap (⇄) for Spotify`
+                  : `Spotify primary: ${media?.title} • Click swap (⇄) for Agent`
+              }
+            >
+              {primaryMode === "agent" ? (
+                <>
+                  {/* Primary Zone: Agent Activity */}
+                  <div className="dual-primary-zone">
+                    <AgentBrandIcon agentId={activeAgent?.agentId} size={18} />
+                    <span className={`dual-agent-text is-${activeAgent?.status}`} title={activeAgent?.activeTool || activeAgent?.agentName}>
+                      {activeAgent?.activeTool || activeAgent?.statusText || activeAgent?.agentName}
+                    </span>
+                    <span className="dual-agent-timer">
+                      {formatElapsed(activeAgent?.startedAt)}
+                    </span>
+                  </div>
+
+                  {/* Swap Button (⇄): exchanges primary & secondary focus */}
+                  <button
+                    className="dual-swap-btn"
+                    onClick={handleSwapPrimary}
+                    title="Swap primary focus to Spotify (music continues uninterrupted)"
+                    aria-label="Swap Primary Activity"
+                  >
+                    <SwapArrowsIcon size={12} />
+                  </button>
+
+                  {/* Secondary Zone: Spotify Micro Badge + Equalizer */}
+                  <div
+                    className="dual-secondary-zone"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveTab("music");
+                      triggerExpand(152);
+                    }}
+                    title={`Playing: ${media?.title}`}
+                  >
+                    <div className="dual-secondary-spotify">
+                      <MediaSourceBadge source={media?.source} size={16} />
+                      <MicroEq />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Primary Zone: Spotify Track & Artist */}
+                  <div className="dual-primary-zone">
+                    <AlbumArtwork
+                      src={media?.artworkUrl}
+                      title={media?.title}
+                      artist={media?.artist}
+                      source={media?.source}
+                      className="capsule-art"
+                      size={28}
+                    />
+                    <div className="dual-media-info">
+                      <span className="dual-media-title" title={media?.title}>
+                        {isSwitching ? "" : media?.title}
+                      </span>
+                      <span className="dual-media-artist" title={media?.artist}>
+                        {isSwitching ? "" : media?.artist || "Unknown Artist"}
+                      </span>
+                    </div>
+                    <div style={{ marginLeft: 4, display: "flex", alignItems: "center" }}>
+                      <MicroEq />
+                    </div>
+                  </div>
+
+                  {/* Swap Button (⇄): exchanges primary & secondary focus */}
+                  <button
+                    className="dual-swap-btn"
+                    onClick={handleSwapPrimary}
+                    title="Swap primary focus to Agent Activity"
+                    aria-label="Swap Primary Activity"
+                  >
+                    <SwapArrowsIcon size={12} />
+                  </button>
+
+                  {/* Secondary Zone: Agent Icon & Status */}
+                  <div
+                    className="dual-secondary-zone"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveTab("agent");
+                      triggerExpand(204);
+                    }}
+                    title={`Agent: ${activeAgent?.agentName} (${activeAgent?.status})`}
+                  >
+                    <AgentBrandIcon agentId={activeAgent?.agentId} size={16} />
+                    {activeAgent?.status === "completed" ? (
+                      <AgentStatusGlyph status="completed" size={14} />
+                    ) : activeAgent?.status === "waiting" ? (
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#ffbd2e" }} />
+                    ) : (
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#ea580c", boxShadow: "0 0 5px #ea580c" }} />
+                    )}
+                  </div>
+                </>
+              )}
+            </motion.div>
+          ) : isAgentWorking ? (
+            /* =================================================================
+               COLLAPSED AGENT CAPSULE (Single Activity, exact media_1792765016206 replica)
+               ================================================================= */
+            <motion.div
+              key="collapsed-agent"
+              className="capsule-agent-bar"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0, transition: { duration: 0.06, delay: 0 } }}
+              whileHover={{ scale: 1.015 }}
+              transition={{
+                opacity: { duration: 0.24, delay: 0.10, ease: [0.32, 0.72, 0, 1] }
+              }}
+              onClick={() => {
+                setActiveTab("agent");
+                triggerExpand(160);
+              }}
+              title={`${activeAgent?.agentName}: ${activeAgent?.activeTool || activeAgent?.statusText} — Hover to expand`}
+            >
+              <div className="agent-bar-left">
+                <AgentBrandIcon agentId={activeAgent?.agentId} size={18} />
+                <span className={`agent-bar-text is-${activeAgent?.status}`} title={activeAgent?.activeTool || activeAgent?.agentName}>
+                  {activeAgent?.activeTool || activeAgent?.statusText || "Agent Working"}
+                </span>
+              </div>
+
+              <div className="agent-bar-right">
+                {activeAgent?.status === "completed" ? (
+                  <AgentStatusGlyph status="completed" size={16} />
+                ) : activeAgent?.status === "waiting" ? (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "#ffbd2e" }}>WAITING</span>
+                ) : (
+                  <span className="agent-bar-timer is-running">
+                    {formatElapsed(activeAgent?.startedAt)}
+                  </span>
+                )}
+              </div>
+            </motion.div>
           ) : hasActiveMedia && media ? (
             /* =================================================================
                COLLAPSED MUSIC CAPSULE (Screenshot 1 replica)
@@ -2579,7 +3232,7 @@ export function App() {
               className="capsule-music-bar"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              exit={{ opacity: 0, transition: { duration: 0.06, delay: 0 } }}
               whileHover={{ scale: 1.015 }}
               transition={{
                 opacity: { duration: 0.24, delay: 0.10, ease: [0.32, 0.72, 0, 1] }
@@ -2647,10 +3300,10 @@ export function App() {
               className="capsule-idle-bar"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              exit={{ opacity: 0, transition: { duration: 0.06, delay: 0 } }}
               whileHover={{ scale: 1.02 }}
               transition={{
-                opacity: { duration: 0.24, delay: 0.10, ease: [0.32, 0.72, 0, 1] }
+                opacity: { duration: 0.20, delay: 0.05, ease: [0.32, 0.72, 0, 1] }
               }}
               onClick={() => {
                 triggerExpand();
@@ -2672,12 +3325,15 @@ export function App() {
                     className="notch-clipboard-badge"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setActiveTab("shelf");
-                      triggerExpand();
+                      switchTab("shelf");
+                      triggerExpand(176);
                     }}
-                    title={`${storedImages.length} saved files — Click to view`}
+                    title="Open Stored Images"
                   >
-                    <span className="clipboard-icon">📋</span>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1 2-2h2" />
+                      <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+                    </svg>
                     <span className="badge-count">{storedImages.length}</span>
                   </button>
                 )}

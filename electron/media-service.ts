@@ -32,6 +32,7 @@ export class MediaService {
   private currentArtworkUrl: string | undefined = undefined;
   private currentVolume: number = 50;
   private isMuted: boolean = false;
+  private lastVolumeSetTime: number = 0;
 
   constructor(logger?: Logger) {
     this.log = logger || ((msg) => console.log(`[MediaService] ${msg}`));
@@ -171,10 +172,10 @@ export class MediaService {
   public setVolume(volumePercent: number): void {
     const clamped = Math.max(0, Math.min(100, Math.round(volumePercent)));
     this.currentVolume = clamped;
+    this.lastVolumeSetTime = Date.now();
     this.sendCommand(`set-volume:${clamped}`);
     if (this.currentMedia) {
-      this.currentMedia = { ...this.currentMedia, volume: clamped };
-      this.notify(this.currentMedia);
+      this.currentMedia.volume = clamped;
     }
   }
 
@@ -233,7 +234,9 @@ export class MediaService {
       }
 
       if (typeof data.volume === "number") {
-        this.currentVolume = data.volume;
+        if (Date.now() - this.lastVolumeSetTime >= 1200) {
+          this.currentVolume = data.volume;
+        }
       }
       if (typeof data.isMuted === "boolean") {
         this.isMuted = data.isMuted;
@@ -290,20 +293,40 @@ export class MediaService {
         source = "browser";
       }
 
-      const isBrowserSource = source === "youtube" || source === "generic";
+      const isBrowserApp =
+        appLower.includes("brave") ||
+        appLower.includes("chrome") ||
+        appLower.includes("edge") ||
+        appLower.includes("firefox") ||
+        appLower.includes("opera") ||
+        appLower.includes("vivaldi") ||
+        appLower.includes("browser") ||
+        source === "browser";
 
-      if (!isBrowserSource && data.artworkPath && fs.existsSync(data.artworkPath)) {
-        this.currentArtworkPath = data.artworkPath;
-      } else if (isBrowserSource) {
-        // Chromium GSMTC provides browser executable icons (e.g. Brave lion) rather than song artwork.
-        // Don't treat the browser icon as the song's album art.
-        if (this.currentArtworkSongKey !== `${data.title}:::${data.artist}`) {
-          this.currentArtworkPath = "";
-        }
+      const currentSongKey = `${data.title || ""}:::${data.artist || ""}`;
+      const isTrackChange = this.currentArtworkSongKey !== currentSongKey;
+
+      if (isTrackChange) {
+        this.currentArtworkSongKey = currentSongKey;
+        this.currentArtworkPath = "";
+        this.lastEmittedArtworkPath = "";
+        this.currentArtworkUrl = undefined;
       }
 
-      // If playing in browser or missing artwork, automatically resolve the genuine high-res album cover
-      if ((isBrowserSource || !this.currentArtworkPath) && data.title) {
+      // Native players (e.g. Spotify Desktop) provide genuine album artwork in data.artworkPath.
+      // Chromium browsers only provide browser executable icons (e.g. Brave lion), so ignore artworkPath for browser apps.
+      if (!isBrowserApp && data.artworkPath && fs.existsSync(data.artworkPath)) {
+        try {
+          const stat = fs.statSync(data.artworkPath);
+          if (stat.isFile() && stat.size > 0) {
+            this.currentArtworkPath = data.artworkPath;
+          }
+        } catch {}
+      }
+
+      // If playing in browser or native artwork is missing/empty, resolve high-res cover
+      // (Exclude YouTube normal video view which uses official YouTube branding)
+      if ((isBrowserApp || !this.currentArtworkPath) && data.title && source !== "youtube") {
         this.tryResolveOnlineArtwork(data.title, data.artist || "");
       }
 
@@ -313,10 +336,12 @@ export class MediaService {
         posMs = durMs;
       }
 
-      if (this.currentArtworkPath && this.currentArtworkPath !== this.lastEmittedArtworkPath) {
-        this.lastEmittedArtworkPath = this.currentArtworkPath;
-        this.currentArtworkUrl = `islet-art://live-artwork?t=${Date.now()}`;
-      } else if (!this.currentArtworkPath) {
+      if (this.currentArtworkPath) {
+        if (this.currentArtworkPath !== this.lastEmittedArtworkPath || !this.currentArtworkUrl) {
+          this.lastEmittedArtworkPath = this.currentArtworkPath;
+          this.currentArtworkUrl = `islet-art://live-artwork?t=${Date.now()}`;
+        }
+      } else {
         this.lastEmittedArtworkPath = "";
         this.currentArtworkUrl = undefined;
       }
@@ -459,15 +484,21 @@ export class MediaService {
         const hash = Math.abs(this.hashCode(rawKey));
         const outPath = path.join(this.artCacheDir, `art-resolved-${hash}.jpg`);
         fs.writeFileSync(outPath, Buffer.from(arrayBuf));
-        this.currentArtworkPath = outPath;
-        this.currentArtworkSongKey = rawKey;
         this.log(`[MediaService] Resolved genuine album artwork for "${title}": ${outPath}`);
-        if (this.currentMedia && this.currentMedia.title === title) {
+        // Ensure the current playing media hasn't changed before updating artwork state
+        if (this.currentMedia && `${this.currentMedia.title}:::${this.currentMedia.artist}` === rawKey) {
+          this.currentArtworkPath = outPath;
+          this.currentArtworkSongKey = rawKey;
+          this.lastEmittedArtworkPath = outPath;
           this.currentMedia.artworkUrl = `islet-art://live-artwork?t=${Date.now()}`;
           this.notify(this.currentMedia);
         }
+      } else {
+        // Reset lookup key so transient errors or retries can re-attempt
+        this.lastArtworkLookupKey = "";
       }
     } catch (err) {
+      this.lastArtworkLookupKey = "";
       this.log(`[MediaService] Failed to resolve online artwork for "${title}":`, err);
     }
   }

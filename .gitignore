@@ -8,6 +8,13 @@ dist-electron/
 coverage/
 out/
 release/
+*.builder-effective-config.yaml
+*.exe
+*.msi
+*.nsis
+*.blockmap
+*.zip
+*.tar.gz
 
 # Local configuration and secrets
 .env

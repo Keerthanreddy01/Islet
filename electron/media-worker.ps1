@@ -153,6 +153,7 @@ $cmdFile = Join-Path $artCacheDir "cmd.txt"
 $lastStateSig = ""
 $lastArtFile = ""
 $lastArtSig = ""
+$lastArtAttemptCount = 0
 $consecutiveNullSnapshots = 0
 $inCommandTransitionTicks = 0
 
@@ -282,35 +283,79 @@ function Get-MediaSnapshot {
 
     # Handle artwork
     $artSig = "$title::$artist"
-    $artPath = $script:lastArtFile
+    $artPath = ""
+    $artFileValid = $false
 
-    if ($artSig -ne $script:lastArtSig -or -not (Test-Path $script:lastArtFile)) {
+    if (-not [string]::IsNullOrEmpty($script:lastArtFile)) {
+        try {
+            if (Test-Path -LiteralPath $script:lastArtFile) {
+                $item = Get-Item -LiteralPath $script:lastArtFile -ErrorAction SilentlyContinue
+                if ($item -and $item.Length -gt 0) {
+                    $artFileValid = $true
+                }
+            }
+        } catch {}
+    }
+
+    # Reset retry counter on song change
+    if ($artSig -ne $script:lastArtSig) {
         $script:lastArtSig = $artSig
+        $script:lastArtAttemptCount = 0
+        $script:lastArtFile = ""
+        $artFileValid = $false
+    }
+
+    # If artwork file is not yet valid and we haven't exceeded retry attempts (~1s)
+    if (-not $artFileValid -and $script:lastArtAttemptCount -lt 6) {
+        $script:lastArtAttemptCount++
+        $hash = [Math]::Abs($artSig.GetHashCode())
+        $filePath = Join-Path $artCacheDir "art-$hash.jpg"
         $thumbSaved = $false
-        if ($prop.Thumbnail) {
+
+        # 1. Check existing valid cached artwork for this track first
+        if (Test-Path -LiteralPath $filePath) {
+            $item = Get-Item -LiteralPath $filePath -ErrorAction SilentlyContinue
+            if ($item -and $item.Length -gt 0) {
+                $script:lastArtFile = $filePath
+                $artPath = $filePath
+                $thumbSaved = $true
+            }
+        }
+
+        # 2. Extract from GSMTC Thumbnail stream if available
+        if (-not $thumbSaved -and $prop.Thumbnail) {
             try {
                 $stream = Await-WinRt ($prop.Thumbnail.OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
                 if ($stream) {
                     $asStreamMethod = [System.IO.WindowsRuntimeStreamExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsStreamForRead' -and $_.GetParameters().Count -eq 1 }
                     $netStream = $asStreamMethod[0].Invoke($null, @($stream))
-                    $hash = [Math]::Abs($artSig.GetHashCode())
-                    $filePath = Join-Path $artCacheDir "art-$hash.jpg"
-                    $fileStream = [System.IO.File]::Create($filePath)
+                    $tempPath = "$filePath.tmp"
+                    $fileStream = [System.IO.File]::Open($tempPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
                     $netStream.CopyTo($fileStream)
                     $fileStream.Dispose()
                     $netStream.Dispose()
-                    $script:lastArtFile = $filePath
-                    $artPath = $filePath
-                    $thumbSaved = $true
+                    if (Test-Path -LiteralPath $tempPath) {
+                        Move-Item -LiteralPath $tempPath -Destination $filePath -Force -ErrorAction SilentlyContinue
+                    }
+                    if (Test-Path -LiteralPath $filePath) {
+                        $item = Get-Item -LiteralPath $filePath -ErrorAction SilentlyContinue
+                        if ($item -and $item.Length -gt 0) {
+                            $script:lastArtFile = $filePath
+                            $artPath = $filePath
+                            $thumbSaved = $true
+                        }
+                    }
                 }
             } catch {
                 # Thumbnail fallback
             }
         }
+
         if (-not $thumbSaved) {
-            $script:lastArtFile = ""
             $artPath = ""
         }
+    } else {
+        $artPath = $script:lastArtFile
     }
 
     $volScalar = -1
@@ -430,7 +475,7 @@ while ($true) {
         if ($snapshot) {
             $script:consecutiveNullSnapshots = 0
             $json = $snapshot | ConvertTo-Json -Compress
-            $sig = "$($snapshot.app):$($snapshot.title):$($snapshot.artist):$($snapshot.status):$([Math]::Floor($snapshot.positionMs / 1000)):$($snapshot.volume):$($snapshot.isMuted)"
+            $sig = "$($snapshot.app):$($snapshot.title):$($snapshot.artist):$($snapshot.status):$([Math]::Floor($snapshot.positionMs / 1000)):$($snapshot.volume):$($snapshot.isMuted):$($snapshot.artworkPath)"
             if ($sig -ne $lastStateSig) {
                 $lastStateSig = $sig
                 [Console]::Out.WriteLine($json)

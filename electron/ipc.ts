@@ -14,6 +14,41 @@ export type MediaState = {
   isMuted?: boolean;
 };
 
+export type AgentStatus =
+  | "idle"
+  | "running"
+  | "waiting"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "unknown";
+
+export type AgentId = "antigravity" | "claude" | "codex" | "chatgpt" | "custom";
+
+export interface AgentActivityItem {
+  id: string;
+  agentId: AgentId;
+  agentName: string;
+  taskTitle: string;
+  status: AgentStatus;
+  statusText?: string;
+  activeTool?: string;
+  activityText?: string;
+  startedAt?: number;
+  completedAt?: number;
+  lastUpdatedAt: number;
+  progress?: number;
+  confidence: number;
+  source: string;
+  cwd?: string;
+}
+
+export interface AgentState {
+  agents: AgentActivityItem[];
+  activeAgent: AgentActivityItem | null;
+  primaryMode: "agent" | "spotify";
+}
+
 export type ScreenTimeDay = {
   day: string; // e.g. "WED", "THU", "FRI"
   date: string; // "2026-10-23"
@@ -189,5 +224,11 @@ export type IsletApi = {
   };
   screentime: {
     get(): Promise<ScreenTimeData>;
+  };
+  agents: {
+    getState(): Promise<AgentState>;
+    subscribe(listener: (state: AgentState) => void): () => void;
+    setPrimaryMode(mode: "agent" | "spotify"): Promise<void>;
+    swapPrimary(): Promise<AgentState>;
   };
 };

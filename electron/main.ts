@@ -6,16 +6,15 @@ import { fileURLToPath } from "node:url";
 import type {
   CalendarEvent,
   CalendarWeek,
-  MediaState,
   Settings,
   Tab,
   Task,
-  WindowDragPoint,
   WindowPosition
 } from "./ipc.js";
 
 import { MediaService } from "./media-service.js";
 import { ScreenTimeService } from "./screentime-service.js";
+import { AgentService } from "./agent-service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 protocol.registerSchemesAsPrivileged([
@@ -35,7 +34,7 @@ protocol.registerSchemesAsPrivileged([
 // Window element sizing - Sleek 390px width and comfortable expanded height
 const WIN_WIDTH = 390;
 const COLLAPSED_WIN_HEIGHT = 48;
-const EXPANDED_WIN_HEIGHT = 165;
+const EXPANDED_WIN_HEIGHT = 188;
 
 const SETTINGS_FILE = "settings.json";
 
@@ -67,13 +66,12 @@ export const log = (message: string, error?: unknown) => {
 
 const mediaService = new MediaService(log);
 const screenTimeService = new ScreenTimeService();
+const agentService = new AgentService(log);
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let expanded = false;
 let hidden = false;
-let dragOffset = { x: 0, y: 0 };
 let collapseTimer: NodeJS.Timeout | null = null;
-let snapAnimationTimer: NodeJS.Timeout | null = null;
 let currentAnchor: WindowPosition | null = null;
 let settings: Settings;
 let registeredHotkey: string | null = null;
@@ -197,66 +195,6 @@ const persistPosition = (position: WindowPosition) => {
   const display = displayForPosition(position);
   settings.positions[positionKey(display)] = clampWindowPosition(position, WIN_WIDTH, COLLAPSED_WIN_HEIGHT, display);
   saveSettings();
-};
-
-const snapPosition = (_position: WindowPosition): WindowPosition => {
-  const display = getActiveDisplay();
-  return defaultTopCenterPosition(display);
-};
-
-const animateSnap = (from: WindowPosition, to: WindowPosition) => {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (snapAnimationTimer) {
-    clearTimeout(snapAnimationTimer);
-    snapAnimationTimer = null;
-  }
-
-  const startX = Number.isFinite(from?.x) ? Math.round(from.x) : (to?.x ?? 0);
-  const startY = Number.isFinite(from?.y) ? Math.round(from.y) : (to?.y ?? 0);
-  const targetX = Number.isFinite(to?.x) ? Math.round(to.x) : startX;
-  const targetY = Number.isFinite(to?.y) ? Math.round(to.y) : startY;
-
-  const safeTargetX = ((Math.round(targetX) || 0) | 0);
-  const safeTargetY = ((Math.round(targetY) || 0) | 0);
-
-  if (!settings.snapToEdge || (startX === targetX && startY === targetY)) {
-    try {
-      mainWindow.setPosition(safeTargetX, safeTargetY);
-    } catch (err) {
-      log("[animateSnap] setPosition error:", err);
-    }
-    currentAnchor = { x: safeTargetX, y: safeTargetY };
-    persistPosition(currentAnchor);
-    return;
-  }
-
-  const startedAt = Date.now();
-  const duration = 180;
-  const tick = () => {
-    if (!mainWindow || mainWindow.isDestroyed()) {
-      snapAnimationTimer = null;
-      return;
-    }
-    const progress = Math.min(1, (Date.now() - startedAt) / duration);
-    const eased = 1 - Math.pow(1 - progress, 3);
-    const curX = ((Math.round(startX + (targetX - startX) * eased) || 0) | 0);
-    const curY = ((Math.round(startY + (targetY - startY) * eased) || 0) | 0);
-
-    try {
-      mainWindow.setPosition(curX, curY);
-    } catch (err) {
-      log("[animateSnap:tick] setPosition error:", err);
-    }
-
-    if (progress < 1) {
-      snapAnimationTimer = setTimeout(tick, 16);
-    } else {
-      snapAnimationTimer = null;
-      currentAnchor = { x: safeTargetX, y: safeTargetY };
-      persistPosition(currentAnchor);
-    }
-  };
-  tick();
 };
 
 const resizeToExpanded = (customHeight?: number) => {
@@ -577,6 +515,7 @@ const createWindow = () => {
     if (current) {
       mainWindow?.webContents.send("media:changed", current);
     }
+    mainWindow?.webContents.send("agents:changed", agentService.getState());
     if (!hidden) {
       showIslet("startup-ready");
     }
@@ -906,6 +845,20 @@ const registerIpc = () => {
   ipcMain.handle("screentime:get", async () => {
     return screenTimeService.getScreenTimeData();
   });
+
+  ipcMain.handle("agents:get-state", () => {
+    return agentService.getState();
+  });
+
+  ipcMain.handle("agents:set-primary-mode", (_event, mode: "agent" | "spotify") => {
+    agentService.setPrimaryMode(mode);
+    return true;
+  });
+
+  ipcMain.handle("agents:swap-primary", () => {
+    agentService.swapPrimary();
+    return true;
+  });
 };
 
 app.whenReady().then(() => {
@@ -919,30 +872,80 @@ app.whenReady().then(() => {
 
   registerIpc();
 
+  function detectImageMimeType(buf: Buffer, defaultMime = "image/jpeg"): string {
+    if (buf.length >= 4) {
+      if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+        return "image/png";
+      }
+      if (buf[0] === 0xff && buf[1] === 0xd8) {
+        return "image/jpeg";
+      }
+      if (
+        buf[0] === 0x52 &&
+        buf[1] === 0x49 &&
+        buf[2] === 0x46 &&
+        buf[3] === 0x46 &&
+        buf.length >= 12 &&
+        buf[8] === 0x57 &&
+        buf[9] === 0x45 &&
+        buf[10] === 0x42 &&
+        buf[11] === 0x50
+      ) {
+        return "image/webp";
+      }
+      if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) {
+        return "image/gif";
+      }
+      const headerStr = buf.subarray(0, Math.min(100, buf.length)).toString("utf8").trim().toLowerCase();
+      if (headerStr.includes("<svg") || headerStr.includes("<?xml")) {
+        return "image/svg+xml";
+      }
+    }
+    return defaultMime;
+  }
+
   // Resilient artwork protocol handler
-  protocol.handle("islet-art", (request) => {
+  protocol.handle("islet-art", async (request) => {
     try {
       const url = new URL(request.url);
-      log(`[protocol:islet-art] Handling request: ${request.url}`);
       const rawName = url.pathname.replace(/^\/+/, "") || url.hostname || url.host;
       const fileName = decodeURIComponent(rawName);
 
       if (fileName.includes("live-artwork") || fileName.includes("current-art")) {
-        const livePath = mediaService.getCurrentArtworkPath();
-        log(`[protocol:islet-art] Resolved live artwork path: "${livePath}"`);
-        if (livePath && fs.existsSync(livePath) && fs.statSync(livePath).isFile()) {
-          const data = fs.readFileSync(livePath);
-          log(`[protocol:islet-art] Serving live artwork: ${data.length} bytes`);
-          return new Response(data, {
-            headers: {
-              "Content-Type": "image/jpeg",
-              "Cache-Control": "no-cache",
-              "Access-Control-Allow-Origin": "*"
-            }
-          });
-        } else {
-          log(`[protocol:islet-art] livePath not found or not file: ${livePath}`);
+        let livePath = mediaService.getCurrentArtworkPath();
+
+        // Bounded retry in case file is in the process of atomic flush or write
+        for (let attempt = 0; attempt < 3; attempt++) {
+          if (!livePath) {
+            livePath = mediaService.getCurrentArtworkPath();
+          }
+          if (livePath && fs.existsSync(livePath)) {
+            try {
+              const stat = fs.statSync(livePath);
+              if (stat.isFile() && stat.size > 0) {
+                const data = fs.readFileSync(livePath);
+                if (data.length > 0) {
+                  const mime = detectImageMimeType(data, "image/jpeg");
+                  return new Response(data, {
+                    headers: {
+                      "Content-Type": mime,
+                      "Cache-Control": "no-store, no-cache, must-revalidate",
+                      "Access-Control-Allow-Origin": "*"
+                    }
+                  });
+                }
+              }
+            } catch {}
+          }
+          if (attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
         }
+
+        return new Response("Live artwork unavailable", {
+          status: 404,
+          headers: { "Cache-Control": "no-store, no-cache, must-revalidate" }
+        });
       }
 
       if (!fileName || fileName === "/" || fileName === ".") {
@@ -952,9 +955,10 @@ app.whenReady().then(() => {
       const filePath = path.join(__dirname, "../assets/artwork", fileName);
       if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
         const data = fs.readFileSync(filePath);
+        const mime = fileName.endsWith(".svg") ? "image/svg+xml" : detectImageMimeType(data, "image/png");
         return new Response(data, {
           headers: {
-            "Content-Type": fileName.endsWith(".svg") ? "image/svg+xml" : "image/png",
+            "Content-Type": mime,
             "Cache-Control": "public, max-age=3600",
             "Access-Control-Allow-Origin": "*"
           }
@@ -998,6 +1002,19 @@ app.whenReady().then(() => {
     }
     // Note: When media stops, do NOT hide the window! The island smoothly shows the Idle Time/Day/Weather notch.
   });
+
+  // Start real-time developer AI agent monitoring
+  agentService.start();
+  agentService.subscribe((agentState) => {
+    if (rendererReady && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("agents:changed", agentState);
+    }
+    if (agentState.activeAgent && (agentState.activeAgent.status === "running" || agentState.activeAgent.status === "waiting")) {
+      if (hidden || !mainWindow?.isVisible()) {
+        showIslet("agent-active");
+      }
+    }
+  });
 });
 
 app.on("second-instance", () => {
@@ -1007,6 +1024,7 @@ app.on("second-instance", () => {
 
 app.on("will-quit", () => {
   mediaService.stop();
+  agentService.stop();
   screenTimeService.destroy();
   globalShortcut.unregisterAll();
   tray?.destroy();

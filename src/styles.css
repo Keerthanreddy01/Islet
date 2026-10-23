@@ -155,10 +155,11 @@ button {
   -webkit-backface-visibility: hidden;
 }
 
-/* Collapsed Capsule Bars: Fixed heights pinned to top so they never stretch or jump vertically during morph */
+/* Collapsed Capsule Bars & Quick Actions Bar: Fixed heights pinned to top so they never stretch or jump vertically during morph */
 .capsule-idle-bar,
 .capsule-music-bar,
-.capsule-timer-bar {
+.capsule-timer-bar,
+.expanded-quickbar-panel {
   position: absolute;
   top: 0;
   left: 0;
@@ -167,6 +168,18 @@ button {
   transform: translateZ(0);
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+}
+
+/* Instantly hide collapsed bars as soon as expanding begins to prevent any overlap on tools */
+.islet-notch-surface.mode-expanded .capsule-idle-bar,
+.islet-notch-surface.mode-expanded .capsule-timer-bar,
+.islet-notch-surface.mode-expanded .capsule-music-bar,
+.islet-notch-surface.mode-expanded .capsule-dual-bar,
+.islet-notch-surface.mode-expanded .capsule-agent-bar {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+  transition: opacity 0.08s ease-out, visibility 0.08s !important;
 }
 
 /* ==========================================================================
@@ -179,6 +192,7 @@ button {
   justify-content: space-between;
   padding: 0 14px;
   cursor: pointer;
+  user-select: none;
   transition: background-color 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -190,6 +204,7 @@ button {
   display: flex;
   align-items: center;
   gap: 7px;
+  white-space: nowrap;
 }
 
 .idle-time {
@@ -199,11 +214,13 @@ button {
   letter-spacing: -0.2px;
   font-variant-numeric: tabular-nums;
   line-height: 1;
+  white-space: nowrap;
 }
 
 .idle-sep {
   font-size: 9px;
   color: rgba(255, 255, 255, 0.25);
+  line-height: 1;
 }
 
 .idle-day {
@@ -211,12 +228,14 @@ button {
   font-weight: 500;
   color: var(--text-secondary);
   line-height: 1;
+  white-space: nowrap;
 }
 
 .idle-right {
   display: flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 
 .idle-weather-icon {
@@ -229,6 +248,8 @@ button {
   font-weight: 600;
   color: #ffffff;
   line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* ==========================================================================
@@ -471,32 +492,57 @@ button {
   flex-shrink: 0;
 }
 
-/* Compact Volume Slider Bar */
+/* Compact Volume Slider Bar - Premium Glassmorphism */
 .compact-volume-slider-bar {
   display: flex;
   align-items: center;
-  overflow: hidden;
   height: 28px;
-  padding: 0 4px;
+  padding: 0 8px;
+  background: rgba(24, 26, 32, 0.72);
+  backdrop-filter: blur(12px) saturate(130%);
+  -webkit-backdrop-filter: blur(12px) saturate(130%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 14px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), inset 0 0.5px 0.5px rgba(255, 255, 255, 0.12);
+  overflow: visible;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
 }
 
 .compact-volume-track {
   width: 100%;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.16);
+  height: 5px;
+  background: rgba(255, 255, 255, 0.13);
   border-radius: 3px;
   position: relative;
   cursor: pointer;
   display: flex;
   align-items: center;
   user-select: none;
+  -webkit-user-select: none;
   touch-action: none;
-  transition: height 0.14s ease, background 0.14s ease;
+  transition: height 0.12s cubic-bezier(0.16, 1, 0.3, 1), background 0.12s ease;
 }
 
-.compact-volume-track:hover {
-  height: 8px;
-  background: rgba(255, 255, 255, 0.22);
+/* Expanded invisible hit area ensuring clicks/drags anywhere within the 28px bar register on the track */
+.compact-volume-track::before {
+  content: "";
+  position: absolute;
+  top: -12px;
+  bottom: -12px;
+  left: -8px;
+  right: -8px;
+  cursor: pointer;
+}
+
+.compact-volume-track:hover,
+.compact-volume-track.is-dragging {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .compact-volume-fill {
@@ -504,28 +550,36 @@ button {
   background: #ffffff;
   border-radius: 3px;
   pointer-events: none;
-  box-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
-  transition: width 0.04s linear;
+  box-shadow: 0 0 5px rgba(255, 255, 255, 0.3);
+  /* Intentionally no CSS transition on width to ensure 100% synchronous tracking with thumb */
 }
 
 .compact-volume-thumb {
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 10px;
-  height: 10px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   background: #ffffff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
-  pointer-events: none;
-  opacity: 0.95;
-  transition: transform 0.1s ease, width 0.1s ease, height 0.1s ease;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.55), 0 0 1px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  transition: transform 0.12s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.12s ease;
+  /* Intentionally no CSS transition on left to ensure 100% synchronous tracking with pointer */
 }
 
-.compact-volume-track:hover .compact-volume-thumb {
-  width: 12px;
-  height: 12px;
-  opacity: 1;
+.compact-volume-thumb:active,
+.compact-volume-track.is-dragging .compact-volume-thumb {
+  cursor: grabbing;
+  transform: translate(-50%, -50%) scale(1.22);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.7), 0 0 5px rgba(255, 255, 255, 0.5);
+}
+
+.compact-volume-slider-bar.is-dragging,
+.compact-volume-slider-bar.is-dragging * {
+  cursor: grabbing !important;
 }
 
 .music-soundwave-btn.is-active {
@@ -534,6 +588,7 @@ button {
   transform: scale(1.05);
 }
 
+.music-tools-btn,
 .music-soundwave-btn {
   width: 28px;
   height: 28px;
@@ -543,12 +598,20 @@ button {
   color: #8e8e93;
   border-radius: 50%;
   transition: all 0.15s ease;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  flex-shrink: 0;
+  outline: none;
+  padding: 0;
 }
 
+.music-tools-btn:hover,
 .music-soundwave-btn:hover {
   color: #ffffff;
-  background: rgba(255, 255, 255, 0.1);
-  transform: scale(1.08);
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: scale(1.06);
 }
 
 .music-close-btn {
@@ -768,7 +831,7 @@ button {
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 10px 14px 11px;
+  padding: 12px 14px 10px;
   box-sizing: border-box;
   justify-content: space-between;
   overflow: hidden !important;
@@ -778,7 +841,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 22px;
+  height: 24px;
 }
 
 .shelf-title-wrap {
@@ -809,30 +872,32 @@ button {
   gap: 6px;
 }
 
-/* Back to Song toggle button in Shelf */
+/* Back to Tools / Song toggle button in Shelf */
 .shelf-song-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  padding: 2.5px 8px;
+  gap: 5px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 3px 9px;
   border-radius: 8px;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 500;
   color: #ffffff;
   cursor: pointer;
   transition: all 0.14s ease;
+  line-height: 1;
 }
 
 .shelf-song-btn:hover {
-  background: rgba(255, 255, 255, 0.24);
-  transform: scale(1.05);
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: scale(1.04);
 }
 
-.shelf-song-btn .song-icon {
-  font-size: 10px;
-  color: #1db954;
+.shelf-tools-btn svg {
+  flex-shrink: 0;
+  opacity: 0.9;
 }
 
 .shelf-clear-btn {
@@ -874,11 +939,12 @@ button {
 .shelf-items-strip {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   overflow-x: auto;
   overflow-y: hidden !important;
   padding: 4px 2px;
   width: 100%;
+  height: 98px;
   scrollbar-width: none !important;
   -ms-overflow-style: none !important;
 }
@@ -891,21 +957,25 @@ button {
 
 .shelf-image-card {
   position: relative;
-  width: 68px;
-  height: 68px;
-  border-radius: 13px;
+  height: 92px;
+  min-width: 92px;
+  max-width: 140px;
+  border-radius: 12px;
   overflow: hidden;
   flex-shrink: 0;
-  background: #111317;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(14, 16, 20, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
   transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.15s ease;
   cursor: grab;
   user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .shelf-image-card:hover {
-  transform: scale(1.05);
+  transform: scale(1.03);
   border-color: rgba(255, 255, 255, 0.3);
 }
 
@@ -916,7 +986,7 @@ button {
 .shelf-image-card img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
   pointer-events: none;
 }
@@ -971,10 +1041,10 @@ button {
 
 .shelf-card-delete {
   position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 17px;
-  height: 17px;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.8);
   color: #ffffff;
@@ -985,6 +1055,7 @@ button {
   transition: all 0.12s ease;
   backdrop-filter: blur(4px);
   border: 1px solid rgba(255, 255, 255, 0.15);
+  z-index: 5;
 }
 
 .shelf-card-delete:hover {
@@ -992,27 +1063,32 @@ button {
   transform: scale(1.1);
 }
 
-/* Snug Drop Zone Footer */
+/* Clean Minimal Drop Zone Footer */
 .shelf-dropzone {
   width: 100%;
-  height: 34px;
-  border: 1px dashed rgba(255, 255, 255, 0.15);
-  border-radius: 10px;
+  height: 28px;
+  border: none;
+  outline: none;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  font-size: 10.5px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.02);
-  transition: all 0.15s ease;
+  font-size: 11px;
+  font-weight: 450;
+  color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.03);
+  transition: background 0.15s ease, color 0.15s ease;
+  user-select: none;
+}
+
+.shelf-dropzone:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .shelf-dropzone.dragover {
-  border-color: #0a84ff;
-  background: rgba(10, 132, 255, 0.1);
-  color: #0a84ff;
+  background: rgba(255, 255, 255, 0.09);
+  color: rgba(255, 255, 255, 0.85);
 }
 
 /* ==========================================================================
@@ -1105,24 +1181,28 @@ button {
 }
 
 /* ==========================================================================
-   EXPANDED QUICK ACTIONS ISLAND — MacBook Style, Short & Compact (340px x 48px)
+   EXPANDED QUICK ACTIONS ISLAND — MacBook Style, Symmetrical & Sleek (356px x 48px)
    ========================================================================== */
 .expanded-quickbar-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 48px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 12px;
-  height: 100%;
-  width: 100%;
+  padding: 0 14px;
   box-sizing: border-box;
 }
 
+/* Left Brand Zone: Balanced with Right Zone for perfect center symmetry */
 .quickbar-brand {
+  flex: 1;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   cursor: default;
-  flex-shrink: 0;
   user-select: none;
 }
 
@@ -1143,60 +1223,49 @@ button {
   filter: drop-shadow(0 2px 10px rgba(192, 132, 252, 0.75));
 }
 
-.quickbar-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #0a84ff;
-  box-shadow: 0 0 6px rgba(10, 132, 255, 0.7);
-}
-
-.quickbar-name {
-  font-size: 11px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.45);
-  letter-spacing: 0.3px;
-}
-
+/* Center Tools Group: Mathematically Centered, Uniform 30x30px Buttons, Equal 7px Gaps */
 .quickbar-tools {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  gap: 7px;
 }
 
 .quick-icon-btn {
   position: relative;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  color: rgba(255, 255, 255, 0.68);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  color: rgba(255, 255, 255, 0.72);
   cursor: pointer;
-  transition: background 0.18s cubic-bezier(0.16, 1, 0.3, 1), color 0.18s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: background 0.18s cubic-bezier(0.16, 1, 0.3, 1), color 0.18s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.18s cubic-bezier(0.16, 1, 0.3, 1), transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   outline: none;
   flex-shrink: 0;
   padding: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
 .quick-icon-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.16);
   color: #ffffff;
   border-color: rgba(255, 255, 255, 0.22);
 }
 
 .quick-icon-btn.active {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.20);
   color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.28);
+  border-color: rgba(255, 255, 255, 0.30);
 }
 
 .quick-icon-btn.timer-running {
   width: auto;
-  padding: 0 8px;
+  padding: 0 9px;
   background: rgba(255, 149, 0, 0.16);
   border-color: rgba(255, 149, 0, 0.45);
   color: #ff9500;
@@ -1225,6 +1294,59 @@ button {
   border-radius: 50%;
   background: #bf5af2;
   box-shadow: 0 0 6px #bf5af2;
+}
+
+/* Right Actions Zone: Balanced with Left Zone, Separated Close Button */
+.quickbar-right-actions {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.quickbar-media-return-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  outline: none;
+  box-shadow: none;
+  flex-shrink: 0;
+  line-height: 1;
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), filter 0.18s ease;
+}
+
+.quickbar-media-return-btn:hover {
+  transform: scale(1.10);
+  filter: drop-shadow(0 0 6px rgba(29, 185, 84, 0.6));
+}
+
+.quickbar-close-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.68);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
+  padding: 0;
+  outline: none;
+}
+
+.quickbar-close-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.20);
+  border-color: rgba(255, 255, 255, 0.24);
+  transform: scale(1.08);
 }
 
 /* ==========================================================================
@@ -1657,26 +1779,6 @@ button {
   line-height: 1;
 }
 
-.quickbar-close-btn {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(255, 255, 255, 0.62);
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-  flex-shrink: 0;
-}
-
-.quickbar-close-btn:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.22);
-  transform: scale(1.08);
-}
 
 /* Drop overlay z-index ensure it sits above everything */
 .drop-overlay-capsule {
@@ -1946,4 +2048,455 @@ button {
   color: #8e8e93;
   font-variant-numeric: tabular-nums;
   line-height: 1;
+}
+
+/* ==========================================================================
+   DEVELOPER AI AGENT ACTIVITY & SPOTIFY DUAL-ACTIVITY SYSTEM
+   ========================================================================== */
+
+/* Agent Compact Bar (Single activity mode, e.g. 330px x 42px) */
+.capsule-agent-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  cursor: pointer;
+  user-select: none;
+  box-sizing: border-box;
+  transition: background-color 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.capsule-agent-bar:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.agent-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.agent-bar-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.1px;
+}
+
+.agent-bar-text.is-waiting {
+  color: #ffbd2e;
+}
+
+.agent-bar-text.is-completed {
+  color: #34c759;
+}
+
+.agent-bar-text.is-failed {
+  color: #ff453a;
+}
+
+.agent-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.agent-bar-timer {
+  font-size: 12.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.agent-bar-timer.is-running {
+  color: #ea580c;
+}
+
+.agent-bar-timer.is-completed {
+  color: #34c759;
+}
+
+/* Dual Activity Bar: [ Agent / Spotify Status ] [ ⇄ ] [ Secondary Activity ] */
+.capsule-dual-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  box-sizing: border-box;
+  user-select: none;
+}
+
+.dual-primary-zone {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  cursor: pointer;
+  padding-right: 4px;
+}
+
+.dual-agent-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.dual-agent-text.is-waiting {
+  color: #ffbd2e;
+}
+
+.dual-agent-text.is-completed {
+  color: #34c759;
+}
+
+.dual-agent-text.is-failed {
+  color: #ff453a;
+}
+
+.dual-agent-timer {
+  font-size: 11.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.55);
+  flex-shrink: 0;
+}
+
+.dual-media-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  line-height: 1.15;
+}
+
+.dual-media-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+
+.dual-media-artist {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+
+/* Polished Swap Button (⇄) */
+.dual-swap-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  margin: 0 4px;
+  flex-shrink: 0;
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  padding: 0;
+  outline: none;
+}
+
+.dual-swap-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.28);
+  transform: scale(1.10);
+}
+
+.dual-swap-btn:active {
+  transform: scale(0.92);
+}
+
+.dual-secondary-zone {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  cursor: pointer;
+  padding-left: 2px;
+}
+
+.dual-secondary-spotify {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Status Glyph Components */
+.agent-status-glyph {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.agents-glyph-halo {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: #ffbd2e;
+  filter: blur(2px);
+  pointer-events: none;
+}
+
+.agents-glyph-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 2px #000000;
+  pointer-events: none;
+}
+
+.agents-glyph-badge.is-completed {
+  background: #34c759;
+  color: #000000;
+}
+
+.agents-glyph-badge.is-failed {
+  background: #ff453a;
+  color: #ffffff;
+}
+
+/* Expanded Developer Activity Panel */
+.expanded-agent-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  box-sizing: border-box;
+  justify-content: space-between;
+}
+
+.agent-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.agent-panel-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-panel-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.2px;
+}
+
+.agent-status-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.agent-status-pill.is-running {
+  background: rgba(234, 88, 12, 0.18);
+  border: 1px solid rgba(234, 88, 12, 0.45);
+  color: #ea580c;
+}
+
+.agent-status-pill.is-waiting {
+  background: rgba(255, 189, 46, 0.18);
+  border: 1px solid rgba(255, 189, 46, 0.45);
+  color: #ffbd2e;
+}
+
+.agent-status-pill.is-completed {
+  background: rgba(52, 199, 89, 0.18);
+  border: 1px solid rgba(52, 199, 89, 0.45);
+  color: #34c759;
+}
+
+.agent-status-pill.is-failed {
+  background: rgba(255, 69, 58, 0.18);
+  border: 1px solid rgba(255, 69, 58, 0.45);
+  color: #ff453a;
+}
+
+.agent-status-pill.is-idle {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.agent-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-panel-swap-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 3px 9px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.agent-panel-swap-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+.agent-panel-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-task-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-task-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.agent-active-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.agent-duration {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Spotify quick strip inside expanded agent panel */
+.agent-spotify-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(29, 185, 84, 0.08);
+  border: 1px solid rgba(29, 185, 84, 0.22);
+  border-radius: 10px;
+  padding: 6px 10px;
+}
+
+.agent-spotify-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.agent-spotify-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.agent-spotify-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-spotify-artist {
+  font-size: 9.5px;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-spotify-play-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  cursor: pointer;
+  transition: all 0.14s ease;
+  flex-shrink: 0;
+}
+
+.agent-spotify-play-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: scale(1.08);
 }
