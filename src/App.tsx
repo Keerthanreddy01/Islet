@@ -734,6 +734,225 @@ function CustomTimerDial({
   );
 }
 
+function ScreenTimeRadarIcon() {
+  return (
+    <svg
+      className="screentime-radar-icon"
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#30d158"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {/* Radar beacon waves */}
+      <circle cx="8" cy="7" r="2.2" fill="#30d158" stroke="none" />
+      <path d="M4 12a7 7 0 0 1 8-8" strokeWidth="2.2" />
+      <path d="M2 15a11 11 0 0 1 13-13" strokeWidth="2.2" />
+      {/* Sleek Cursor Arrow */}
+      <polygon
+        points="9,8 9,19 12.5,15 17,15"
+        fill="#30d158"
+        stroke="#30d158"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+interface ScreenTimePanelProps {
+  onBackToTools: () => void;
+  onClose: () => void;
+  onSwitchToMusic?: () => void;
+  hasActiveMedia?: boolean;
+  songTitle?: string;
+}
+
+function ScreenTimePanel({ onBackToTools, onClose, onSwitchToMusic, hasActiveMedia, songTitle }: ScreenTimePanelProps) {
+  const [hoveredDay, setHoveredDay] = useState<string | null>(null);
+
+  return (
+    <motion.div
+      key="expanded-screentime"
+      className="expanded-screentime-panel"
+      initial={{ opacity: 0, scale: 0.96, filter: "blur(2px)" }}
+      animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+      exit={{ opacity: 0, scale: 0.94, filter: "blur(4px)" }}
+      transition={{ duration: 0.20, ease: [0.16, 1, 0.3, 1] }}
+    >
+      {/* Top Nav Row */}
+      <div className="screentime-nav-row" onPointerDown={(e) => e.stopPropagation()}>
+        <div className="screentime-nav-left">
+          <button
+            className="timer-nav-btn timer-back-btn"
+            onClick={onBackToTools}
+            title="Back to Quick Tools"
+            aria-label="Back to Tools"
+          >
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="timer-back-arrow"
+            >
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            <span>Tools</span>
+          </button>
+          {hasActiveMedia && onSwitchToMusic && (
+            <button
+              className="timer-nav-btn"
+              onClick={onSwitchToMusic}
+              title={`Switch to: ${songTitle || "Song"}`}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: 2 }}>
+                <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+              </svg>
+              <span>Song</span>
+            </button>
+          )}
+        </div>
+
+        {/* Minimize / Close */}
+        <button
+          className="timer-min-btn"
+          onClick={onClose}
+          title="Minimize to capsule (Esc)"
+          aria-label="Minimize"
+        >
+          <CloseIcon />
+        </button>
+      </div>
+
+      {/* Screen Time Card Content */}
+      <div className="screentime-card-content" onPointerDown={(e) => e.stopPropagation()}>
+        {/* Header Row: [Radar Icon] [9h 40m] [+219m] ... [AVG 7H 31M] */}
+        <div className="screentime-header-row">
+          <div className="screentime-header-left">
+            <ScreenTimeRadarIcon />
+            <span className="screentime-big-time">9h 40m</span>
+            <span className="screentime-delta-badge">+219m</span>
+          </div>
+          <div className="screentime-header-right">
+            <span className="screentime-avg-label">
+              AVG <span className="screentime-avg-val">7H 31M</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Chart Rows & Axis */}
+        <div className="screentime-chart-container">
+          <div className="screentime-rows-list">
+            {/* TUE */}
+            <div
+              className={`screentime-bar-row ${hoveredDay === "TUE" ? "is-hovered" : ""}`}
+              onMouseEnter={() => setHoveredDay("TUE")}
+              onMouseLeave={() => setHoveredDay(null)}
+              title="Tuesday: 6h 48m"
+            >
+              <span className="screentime-day-label">TUE</span>
+              <div className="screentime-track-wrapper">
+                <div className="screentime-grid-line" style={{ left: "26.1%" }} />
+                <div className="screentime-grid-line" style={{ left: "52.2%" }} />
+                <div className="screentime-grid-line" style={{ left: "78.3%" }} />
+                <div className="screentime-overtime-zone" style={{ left: "65.4%" }} />
+                <div className="screentime-avg-marker-line" style={{ left: "65.4%" }} />
+                <motion.div
+                  className="screentime-bar-gray"
+                  initial={{ width: 0 }}
+                  animate={{ width: "59.1%" }}
+                  transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1], delay: 0.05 }}
+                />
+              </div>
+            </div>
+
+            {/* WED */}
+            <div
+              className={`screentime-bar-row ${hoveredDay === "WED" ? "is-hovered" : ""}`}
+              onMouseEnter={() => setHoveredDay("WED")}
+              onMouseLeave={() => setHoveredDay(null)}
+              title="Wednesday: 5h 18m"
+            >
+              <span className="screentime-day-label">WED</span>
+              <div className="screentime-track-wrapper">
+                <div className="screentime-grid-line" style={{ left: "26.1%" }} />
+                <div className="screentime-grid-line" style={{ left: "52.2%" }} />
+                <div className="screentime-grid-line" style={{ left: "78.3%" }} />
+                <div className="screentime-overtime-zone" style={{ left: "65.4%" }} />
+                <div className="screentime-avg-marker-line" style={{ left: "65.4%" }} />
+                <motion.div
+                  className="screentime-bar-gray"
+                  initial={{ width: 0 }}
+                  animate={{ width: "46.1%" }}
+                  transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1], delay: 0.10 }}
+                />
+              </div>
+            </div>
+
+            {/* THU (Today) */}
+            <div
+              className={`screentime-bar-row ${hoveredDay === "THU" ? "is-hovered" : ""}`}
+              onMouseEnter={() => setHoveredDay("THU")}
+              onMouseLeave={() => setHoveredDay(null)}
+              title="Thursday (Today): 9h 40m (+219m above avg)"
+            >
+              <span className="screentime-day-label" style={{ color: "#ffffff" }}>THU</span>
+              <div className="screentime-track-wrapper">
+                <div className="screentime-grid-line" style={{ left: "26.1%" }} />
+                <div className="screentime-grid-line" style={{ left: "52.2%" }} />
+                <div className="screentime-grid-line" style={{ left: "78.3%" }} />
+                <div className="screentime-overtime-zone" style={{ left: "65.4%" }} />
+                <div className="screentime-avg-marker-line" style={{ left: "65.4%" }} />
+                <div className="screentime-segmented-bar">
+                  <motion.div
+                    className="screentime-bar-white"
+                    initial={{ width: 0 }}
+                    animate={{ width: "65.4%" }}
+                    transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1], delay: 0.15 }}
+                  />
+                  <motion.div
+                    className="screentime-bar-green"
+                    initial={{ width: 0 }}
+                    animate={{ width: "18.7%" }}
+                    transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1], delay: 0.22 }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom Scale Axis: 0, 3, 6, 9 */}
+          <div className="screentime-axis-row">
+            <div className="screentime-axis-spacer" />
+            <div className="screentime-axis-ticks">
+              <div className="screentime-tick" style={{ left: "0%" }}>
+                <span className="tick-label">0</span>
+              </div>
+              <div className="screentime-tick" style={{ left: "26.1%" }}>
+                <span className="tick-label">3</span>
+              </div>
+              <div className="screentime-tick" style={{ left: "52.2%" }}>
+                <span className="tick-label">6</span>
+              </div>
+              <div className="screentime-tick" style={{ left: "78.3%" }}>
+                <span className="tick-label">9</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 // Hook for live real-time clock, day of week, and weather
 function useLiveTimeAndWeather() {
   const [time, setTime] = useState(() => {
@@ -859,7 +1078,7 @@ export type StoredImage = {
 
 export function App() {
   const [state, setState] = useState<InteractionState>("collapsed");
-  const [activeTab, setActiveTab] = useState<"music" | "shelf" | "tools" | "timer">("tools");
+  const [activeTab, setActiveTab] = useState<"music" | "shelf" | "tools" | "timer" | "screentime">("tools");
   const [media, setMedia] = useState<MediaState | null>(null);
   const [isSwitching, setIsSwitching] = useState(false);
   const { time, weather } = useLiveTimeAndWeather();
@@ -934,7 +1153,7 @@ export function App() {
         }
         setIsSwitching(false);
         setMedia(nextMedia);
-        setActiveTab((prev) => (prev === "shelf" ? "shelf" : "music"));
+        setActiveTab((prev) => (prev === "shelf" || prev === "timer" || prev === "screentime" ? prev : "music"));
       } else {
         if (mediaClearTimer.current) {
           clearTimeout(mediaClearTimer.current);
@@ -942,7 +1161,7 @@ export function App() {
         }
         setMedia(null);
         setIsSwitching(false);
-        setActiveTab((prev) => (prev === "shelf" ? "shelf" : "tools"));
+        setActiveTab((prev) => (prev === "shelf" || prev === "timer" || prev === "screentime" ? prev : "tools"));
       }
     });
 
@@ -977,10 +1196,10 @@ export function App() {
 
   const [isFavorite, setIsFavorite] = useState(false);
 
-  const switchTab = (tab: "music" | "shelf" | "tools" | "timer") => {
+  const switchTab = (tab: "music" | "shelf" | "tools" | "timer" | "screentime") => {
     setActiveTab(tab);
     if (isExpanded) {
-      const h = tab === "shelf" ? 116 : tab === "timer" ? 118 : tab === "music" ? 152 : 48;
+      const h = tab === "shelf" ? 116 : tab === "timer" ? 118 : tab === "screentime" ? 134 : tab === "music" ? 152 : 48;
       void window.islet.window.setExpanded(true, h);
     }
   };
@@ -998,7 +1217,8 @@ export function App() {
     const h = panelHeight || (
       activeTab === "shelf" ? 116 :
         activeTab === "timer" ? 118 :
-          activeTab === "music" && hasActiveMedia ? 152 : 48
+          activeTab === "screentime" ? 134 :
+            activeTab === "music" && hasActiveMedia ? 152 : 48
     );
     void window.islet.window.setExpanded(true, h).catch((err: unknown) => {
       console.error("Expand failed:", err);
@@ -1330,7 +1550,8 @@ export function App() {
 
   const isShelfActive = activeTab === "shelf" && storedImages.length > 0;
   const isTimerActive = activeTab === "timer";
-  const isMusicActive = Boolean(hasActiveMedia && media && activeTab !== "shelf" && activeTab !== "tools" && activeTab !== "timer");
+  const isScreenTimeActive = activeTab === "screentime";
+  const isMusicActive = Boolean(hasActiveMedia && media && activeTab !== "shelf" && activeTab !== "tools" && activeTab !== "timer" && activeTab !== "screentime");
   // Show collapsed timer capsule when timer is active (running or paused)
   const showCollapsedTimer = isTimerActiveSession;
 
@@ -1347,6 +1568,10 @@ export function App() {
     } else if (isTimerActive) {
       targetWidth = 356;
       targetHeight = 118;
+      targetRadius = "28px";
+    } else if (isScreenTimeActive) {
+      targetWidth = 356;
+      targetHeight = 134;
       targetRadius = "28px";
     } else if (isMusicActive) {
       targetWidth = 368;
@@ -1693,6 +1918,18 @@ export function App() {
                   </div>
                 </motion.div>
               )
+            ) : isScreenTimeActive ? (
+              /* =================================================================
+                 EXPANDED SCREEN TIME WIDGET (Exact User Screenshot Replica)
+                 ================================================================= */
+              <ScreenTimePanel
+                key="expanded-screentime"
+                onBackToTools={() => switchTab("tools")}
+                onClose={triggerCollapse}
+                onSwitchToMusic={() => switchTab("music")}
+                hasActiveMedia={hasActiveMedia}
+                songTitle={media?.title}
+              />
             ) : isMusicActive && media ? (
               /* =================================================================
                  EXPANDED MUSIC PLAYER (Screenshot 2 exact replica)
@@ -1885,7 +2122,10 @@ export function App() {
                   <motion.button
                     id="qi-screentime"
                     className="quick-icon-btn"
-                    title="Screen Time: 2h 45m today"
+                    title="Screen Time: 9h 40m today"
+                    onClick={() => {
+                      switchTab("screentime");
+                    }}
                     whileHover={{ scale: 1.15, y: -1 }}
                     whileTap={{ scale: 0.9 }}
                     transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}

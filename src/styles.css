@@ -142,7 +142,8 @@ button {
 .expanded-shelf-panel,
 .expanded-quickbar-panel,
 .expanded-timer-panel,
-.custom-timer-setup-panel {
+.custom-timer-setup-panel,
+.expanded-screentime-panel {
   position: absolute;
   top: 0;
   left: 0;
@@ -1633,4 +1634,269 @@ button {
 /* Drop overlay z-index ensure it sits above everything */
 .drop-overlay-capsule {
   z-index: 80 !important;
+}
+
+/* ==========================================================================
+   SCREEN TIME ISLAND WIDGET (EXACT REPLICA)
+   ========================================================================== */
+.expanded-screentime-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 6px 14px 10px 14px;
+  box-sizing: border-box;
+  user-select: none;
+  background: #000000;
+}
+
+.screentime-nav-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 2px;
+}
+
+.screentime-nav-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.screentime-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.screentime-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding-bottom: 2px;
+}
+
+.screentime-header-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.screentime-radar-icon {
+  flex-shrink: 0;
+  display: block;
+}
+
+.screentime-big-time {
+  font-size: 19px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.3px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.screentime-delta-badge {
+  background: #30d158;
+  color: #04290f;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2.5px 6.5px;
+  border-radius: 6px;
+  letter-spacing: -0.2px;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgba(48, 209, 88, 0.35);
+}
+
+.screentime-header-right {
+  display: flex;
+  align-items: center;
+}
+
+.screentime-avg-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #8e8e93;
+  letter-spacing: 0.4px;
+}
+
+.screentime-avg-val {
+  color: #ffffff;
+  font-weight: 700;
+  margin-left: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Chart Grid & Bars */
+.screentime-chart-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.screentime-rows-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+}
+
+.screentime-bar-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 9px;
+  border-radius: 3px;
+  padding: 1px 0;
+  transition: background-color 0.15s ease;
+}
+
+.screentime-day-label {
+  width: 26px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #8e8e93;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  line-height: 1;
+  flex-shrink: 0;
+  text-align: left;
+}
+
+.screentime-bar-row.is-hovered .screentime-day-label {
+  color: #ffffff;
+}
+
+.screentime-track-wrapper {
+  position: relative;
+  flex: 1;
+  height: 9px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, 0.02),
+    rgba(255, 255, 255, 0.02) 2px,
+    rgba(255, 255, 255, 0.06) 2px,
+    rgba(255, 255, 255, 0.06) 4px
+  );
+}
+
+/* Green Overtime Striped Pattern on the Right */
+.screentime-overtime-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(48, 209, 88, 0.06),
+    rgba(48, 209, 88, 0.06) 2px,
+    rgba(48, 209, 88, 0.18) 2px,
+    rgba(48, 209, 88, 0.18) 4.5px
+  );
+  border-left: 1px solid #30d158;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Vertical Grid Lines (0, 3, 6, 9) */
+.screentime-grid-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.07);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Vertical Average Reference Marker */
+.screentime-avg-marker-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  background: rgba(255, 255, 255, 0.45);
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* Solid Gray Day Bar (TUE / WED) */
+.screentime-bar-gray {
+  height: 100%;
+  background: #6c6c70;
+  border-radius: 2px;
+  position: relative;
+  z-index: 2;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+/* Today's Segmented Bar (White + Neon Green) */
+.screentime-segmented-bar {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  position: relative;
+  z-index: 2;
+}
+
+.screentime-bar-white {
+  height: 100%;
+  background: #ffffff;
+  border-radius: 2px 0 0 2px;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.screentime-bar-green {
+  height: 100%;
+  background: #30d158;
+  border-radius: 0 2px 2px 0;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px rgba(48, 209, 88, 0.45);
+}
+
+/* Bottom Axis Row: 0, 3, 6, 9 */
+.screentime-axis-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 9px;
+  margin-top: 2px;
+}
+
+.screentime-axis-spacer {
+  width: 26px;
+  flex-shrink: 0;
+}
+
+.screentime-axis-ticks {
+  position: relative;
+  flex: 1;
+  height: 12px;
+}
+
+.screentime-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.screentime-tick:first-child {
+  transform: translateX(0);
+}
+
+.screentime-tick .tick-label {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: #8e8e93;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
