@@ -147,8 +147,25 @@ function Get-MediaSnapshot {
     }
 
     $timeline = $session.GetTimelineProperties()
-    $posMs = if ($timeline) { [Math]::Round($timeline.Position.TotalMilliseconds) } else { 0 }
-    $durMs = if ($timeline) { [Math]::Round($timeline.EndTime.TotalMilliseconds) } else { 0 }
+    $posMs = 0
+    $durMs = 0
+    $lastUpdatedEpochMs = [Math]::Round(([DateTimeOffset]::UtcNow - [DateTimeOffset]::FromUnixTimeMilliseconds(0)).TotalMilliseconds)
+    if ($timeline) {
+        $posMs = [Math]::Round($timeline.Position.TotalMilliseconds)
+        $durMs = [Math]::Round($timeline.EndTime.TotalMilliseconds)
+
+        if ($status -eq "playing" -and $timeline.LastUpdatedTime -and $timeline.LastUpdatedTime.Year -gt 2000) {
+            try {
+                $elapsedMs = ([DateTimeOffset]::UtcNow - $timeline.LastUpdatedTime.ToUniversalTime()).TotalMilliseconds
+                if ($elapsedMs -gt 0 -and $elapsedMs -lt 86400000) {
+                    $posMs = [Math]::Round($posMs + $elapsedMs)
+                    if ($durMs -gt 0 -and $posMs -gt $durMs) {
+                        $posMs = $durMs
+                    }
+                }
+            } catch {}
+        }
+    }
 
     # Handle artwork
     $artSig = "$title::$artist"
@@ -194,6 +211,7 @@ function Get-MediaSnapshot {
         status = $status
         positionMs = $posMs
         durationMs = $durMs
+        lastUpdatedMs = $lastUpdatedEpochMs
         artworkPath = $artPath
     }
 }

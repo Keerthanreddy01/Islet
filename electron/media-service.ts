@@ -28,6 +28,8 @@ export class MediaService {
   private artCacheDir: string;
   private lastArtworkLookupKey: string = "";
   private currentArtworkSongKey: string = "";
+  private lastEmittedArtworkPath: string = "";
+  private currentArtworkUrl: string | undefined = undefined;
 
   constructor(logger?: Logger) {
     this.log = logger || ((msg) => console.log(`[MediaService] ${msg}`));
@@ -158,6 +160,7 @@ export class MediaService {
   public seek(positionMs: number): void {
     if (this.currentMedia) {
       this.currentMedia.positionMs = positionMs;
+      this.currentMedia.lastUpdatedMs = Date.now();
       this.notify(this.currentMedia);
     }
     this.sendCommand(`seek:${Math.round(positionMs)}`);
@@ -281,15 +284,30 @@ export class MediaService {
         this.tryResolveOnlineArtwork(data.title, data.artist || "");
       }
 
+      let posMs = Math.max(0, Math.round(Number(data.positionMs) || 0));
+      const durMs = Math.max(0, Math.round(Number(data.durationMs) || 0));
+      if (durMs > 0 && posMs > durMs) {
+        posMs = durMs;
+      }
+
+      if (this.currentArtworkPath && this.currentArtworkPath !== this.lastEmittedArtworkPath) {
+        this.lastEmittedArtworkPath = this.currentArtworkPath;
+        this.currentArtworkUrl = `islet-art://live-artwork?t=${Date.now()}`;
+      } else if (!this.currentArtworkPath) {
+        this.lastEmittedArtworkPath = "";
+        this.currentArtworkUrl = undefined;
+      }
+
       const mediaState: MediaState = {
         status: isPlaying ? "playing" : "paused",
         title: data.title || "Unknown Title",
         artist: data.artist || "Unknown Artist",
         album: data.album || "",
         source,
-        artworkUrl: this.currentArtworkPath ? `islet-art://live-artwork?t=${Date.now()}` : undefined,
-        positionMs: data.positionMs || 0,
-        durationMs: data.durationMs || 0
+        artworkUrl: this.currentArtworkUrl,
+        positionMs: posMs,
+        durationMs: durMs,
+        lastUpdatedMs: Number(data.lastUpdatedMs) || Date.now()
       };
 
       this.log(

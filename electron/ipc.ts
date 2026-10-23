@@ -9,6 +9,7 @@ export type MediaState = {
   artworkUrl?: string;
   positionMs: number;
   durationMs: number;
+  lastUpdatedMs?: number;
 };
 
 export type Timer = {

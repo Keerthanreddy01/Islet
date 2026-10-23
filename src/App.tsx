@@ -437,30 +437,144 @@ const formatTimer = (sec: number) => {
   return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 };
 
-const formatTime = (ms?: number) => {
-  if (!ms || ms < 0 || isNaN(ms)) return "0:00";
+const formatTime = (ms?: number, forceHours = false) => {
+  if (!ms || ms < 0 || isNaN(ms)) return forceHours ? "0:00:00" : "0:00";
   const totalSec = Math.floor(ms / 1000);
-  const m = Math.floor(totalSec / 60);
+  const hours = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
+  if (hours > 0 || forceHours) {
+    return `${hours}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  }
   return `${m}:${s.toString().padStart(2, "0")}`;
 };
 
-const formatPaddedTime = (ms?: number) => {
-  if (!ms || ms < 0 || isNaN(ms)) return "00:00";
+const formatPaddedTime = (ms?: number, forceHours = false) => {
+  if (!ms || ms < 0 || isNaN(ms)) return forceHours ? "00:00:00" : "00:00";
   const totalSec = Math.floor(ms / 1000);
-  const m = Math.floor(totalSec / 60);
+  const hours = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
+  if (hours > 0 || forceHours) {
+    return `${hours.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  }
   return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 };
 
 const formatRemainingTime = (posMs?: number, durMs?: number) => {
-  if (!durMs || durMs <= 0) return "-0:00";
-  const validPos = Math.max(0, posMs || 0);
+  if (!durMs || durMs <= 0 || isNaN(durMs)) return "-0:00";
+  const validPos = Math.max(0, Math.min(durMs, posMs || 0));
   const remainingSec = Math.max(0, Math.floor((durMs - validPos) / 1000));
-  const m = Math.floor(remainingSec / 60);
+  const hours = Math.floor(remainingSec / 3600);
+  const m = Math.floor((remainingSec % 3600) / 60);
   const s = remainingSec % 60;
+  if (hours > 0 || durMs >= 3600000) {
+    return `-${hours}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  }
   return `-${m}:${s.toString().padStart(2, "0")}`;
 };
+
+// Universal Media Playback Clock (Spotify, YouTube, browser, VLC, generic)
+function usePlaybackClock(media: MediaState | null) {
+  const [currentPositionMs, setCurrentPositionMs] = useState<number>(0);
+  const basePositionRef = useRef<number>(0);
+  const baseTimestampRef = useRef<number>(0);
+  const currentTrackKeyRef = useRef<string>("");
+  const durationRef = useRef<number>(0);
+
+  const isPlaying = media?.status === "playing";
+  const durationMs = media?.durationMs || 0;
+  durationRef.current = durationMs;
+
+  const trackKey = media
+    ? `${media.source}:::${media.title}:::${media.artist}:::${media.durationMs}`
+    : "";
+
+  // 1. Synchronize & reconcile on incoming media updates from system / media worker
+  useEffect(() => {
+    if (!media) {
+      currentTrackKeyRef.current = "";
+      basePositionRef.current = 0;
+      baseTimestampRef.current = 0;
+      setCurrentPositionMs(0);
+      return;
+    }
+
+    const now = Date.now();
+    const incomingPos = Math.max(0, media.positionMs || 0);
+
+    // Track or source changed: immediate clean reset
+    if (trackKey !== currentTrackKeyRef.current) {
+      currentTrackKeyRef.current = trackKey;
+      basePositionRef.current = incomingPos;
+      baseTimestampRef.current = now;
+      setCurrentPositionMs(incomingPos);
+      return;
+    }
+
+    // Same track: reconcile
+    if (!isPlaying) {
+      // Paused: freeze at incoming position
+      basePositionRef.current = incomingPos;
+      baseTimestampRef.current = now;
+      setCurrentPositionMs(incomingPos);
+    } else {
+      // Playing: compare estimated position with incoming position
+      const elapsedSinceBase = now - baseTimestampRef.current;
+      const estimatedPos = basePositionRef.current + elapsedSinceBase;
+      const drift = Math.abs(incomingPos - estimatedPos);
+
+      // If user sought in app or drift > 1.8s, immediately resync
+      if (drift > 1800) {
+        basePositionRef.current = incomingPos;
+        baseTimestampRef.current = now;
+        setCurrentPositionMs(incomingPos);
+      } else if (drift > 300) {
+        // Minor drift: smoothly reconcile base position
+        basePositionRef.current = incomingPos;
+        baseTimestampRef.current = now;
+      }
+    }
+  }, [media, trackKey, isPlaying]);
+
+  // 2. Playback ticker: updates elapsed time every second while playing
+  useEffect(() => {
+    if (!isPlaying || !media) return;
+
+    // Do not run timer if position is unavailable (no duration and position is 0)
+    if (media.durationMs <= 0 && media.positionMs <= 0) {
+      setCurrentPositionMs(0);
+      return;
+    }
+
+    const tick = () => {
+      const now = Date.now();
+      const elapsed = now - baseTimestampRef.current;
+      const calculated = basePositionRef.current + elapsed;
+      const maxDur = durationRef.current;
+
+      const clamped = maxDur > 0 ? Math.min(maxDur, Math.max(0, calculated)) : Math.max(0, calculated);
+      setCurrentPositionMs(Math.round(clamped));
+    };
+
+    tick();
+    const interval = setInterval(tick, 500);
+
+    return () => clearInterval(interval);
+  }, [isPlaying, trackKey]);
+
+  // Immediate seek synchronization
+  const seekTo = useCallback((targetMs: number) => {
+    const clamped = durationRef.current > 0
+      ? Math.min(durationRef.current, Math.max(0, targetMs))
+      : Math.max(0, targetMs);
+    basePositionRef.current = clamped;
+    baseTimestampRef.current = Date.now();
+    setCurrentPositionMs(clamped);
+  }, []);
+
+  return { currentPositionMs, seekTo };
+}
 
 const TICK_SPACING = 14;
 const MAX_MINUTES = 60;
@@ -1082,6 +1196,7 @@ export function App() {
   const [media, setMedia] = useState<MediaState | null>(null);
   const [isSwitching, setIsSwitching] = useState(false);
   const { time, weather } = useLiveTimeAndWeather();
+  const { currentPositionMs, seekTo } = usePlaybackClock(media);
 
   // Quick Action States
   const [customMinutes, setCustomMinutes] = useState(15);
@@ -1404,6 +1519,7 @@ export function App() {
     const rect = e.currentTarget.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const targetMs = Math.round(ratio * media.durationMs);
+    seekTo(targetMs);
     void window.islet.media.seek(targetMs).catch((err: unknown) => console.error("Media seek error:", err));
   };
 
@@ -1543,9 +1659,10 @@ export function App() {
   };
 
   const isPlaying = media?.status === "playing";
+  const isLongMedia = Boolean(media && (media.durationMs >= 3600000 || currentPositionMs >= 3600000));
   const progressPercent =
     media && media.durationMs > 0
-      ? Math.min(100, Math.max(0, (media.positionMs / media.durationMs) * 100))
+      ? Math.min(100, Math.max(0, (currentPositionMs / media.durationMs) * 100))
       : 0;
 
   const isShelfActive = activeTab === "shelf" && storedImages.length > 0;
@@ -1986,7 +2103,7 @@ export function App() {
                 {/* Middle Row: [0:48] [Scrubber Track with Light Cyan Fill] [-2:08] */}
                 <div className="expanded-music-scrubber-row" onPointerDown={(e) => e.stopPropagation()}>
                   <span className="scrubber-time-label">
-                    {formatTime(media.positionMs)}
+                    {formatTime(currentPositionMs, isLongMedia)}
                   </span>
 
                   <div
@@ -2001,7 +2118,7 @@ export function App() {
                   </div>
 
                   <span className="scrubber-time-label align-right">
-                    {formatRemainingTime(media.positionMs, media.durationMs)}
+                    {formatRemainingTime(currentPositionMs, media.durationMs)}
                   </span>
                 </div>
 
@@ -2242,7 +2359,7 @@ export function App() {
               <div className="capsule-eq-group">
                 <MicroEq />
                 <span className="capsule-time-text">
-                  {formatPaddedTime(media.positionMs)}
+                  {formatPaddedTime(currentPositionMs, isLongMedia)}
                 </span>
               </div>
 
