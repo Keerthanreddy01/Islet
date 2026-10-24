@@ -260,8 +260,12 @@ class AntigravityAdapter implements AgentAdapter {
       let startedAt: number | undefined;
       let completedAt: number | undefined;
       let status: AgentStatus = "idle";
-      let activityText = "Thinking";
-      let taskTitle = "Coding Task";
+      let activityText = "Working";
+      let explicitTitle: string | null = null;
+      let lastEditedFile: string | null = null;
+      let lastViewedFile: string | null = null;
+      let lastToolSummary: string | null = null;
+      let activeDoc: string | null = null;
       let latestToolFound = false;
 
       const cleanArg = (v: unknown): string => {
@@ -280,49 +284,94 @@ class AntigravityAdapter implements AgentAdapter {
           if (entry.type === "USER_INPUT") {
             startedAt = time;
             const text = typeof entry.content === "string" ? entry.content : "";
-            const clean = text.replace(/<[^>]+>/g, "").trim().split("\n")[0].slice(0, 45);
-            if (clean) taskTitle = clean;
+            
+            // Extract clean markdown title if present (e.g. "## Islet — Fix AI Agent Activity Display")
+            const userReqMatch = text.match(/<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/i);
+            const reqBody = userReqMatch ? userReqMatch[1] : text;
+            const headingMatch = reqBody.match(/^\s*#+\s+([^\r\n]+)/m);
+            if (headingMatch && headingMatch[1]) {
+              const cleanH = headingMatch[1].replace(/[*_`#]/g, "").trim();
+              if (cleanH.length > 2 && cleanH.length <= 80 && !cleanH.includes("<")) {
+                explicitTitle = cleanH;
+              }
+            }
+
+            // Extract active document from metadata if present
+            const docMatch = text.match(/Active Document:\s*([^\r\n]+)/i);
+            if (docMatch && docMatch[1]) {
+              const cleanDoc = docMatch[1].trim().split(" ")[0];
+              if (cleanDoc) activeDoc = path.basename(cleanDoc);
+            }
+
             if (status === "idle") {
               status = "running";
-              activityText = "Thinking";
+              activityText = "Working";
             }
             break;
           }
 
-          if (entry.type === "PLANNER_RESPONSE" && !latestToolFound) {
-            latestToolFound = true;
+          if (entry.type === "PLANNER_RESPONSE") {
             const toolCalls = entry.tool_calls || [];
-            if (toolCalls.length > 0) {
-              const lastTool = toolCalls[toolCalls.length - 1];
-              const name = lastTool.name;
-              const rawArgs = lastTool.args || {};
+            
+            // Collect file references across tool calls
+            for (const tc of toolCalls) {
+              const tName = tc.name;
+              const tArgs = tc.args || {};
+              if (tName === "replace_file_content" || tName === "write_to_file" || tName === "multi_replace_file_content") {
+                const target = cleanArg(tArgs.TargetFile);
+                if (target && !lastEditedFile) lastEditedFile = path.basename(target);
+              } else if (tName === "view_file") {
+                const target = cleanArg(tArgs.AbsolutePath);
+                if (target && !lastViewedFile) lastViewedFile = path.basename(target);
+              }
+              if (tc.toolSummary && !lastToolSummary) {
+                lastToolSummary = cleanArg(tc.toolSummary);
+              } else if (tc.toolAction && !lastToolSummary) {
+                lastToolSummary = cleanArg(tc.toolAction);
+              }
+            }
 
-              if (name === "ask_question") {
-                status = "waiting";
-                activityText = "Waiting for input";
-              } else if (name === "replace_file_content" || name === "write_to_file" || name === "multi_replace_file_content") {
-                status = "running";
-                const target = cleanArg(rawArgs.TargetFile);
-                activityText = `Editing ${target ? path.basename(target) : "file"}`;
-              } else if (name === "view_file") {
-                status = "running";
-                const target = cleanArg(rawArgs.AbsolutePath);
-                activityText = `Viewing ${target ? path.basename(target) : "file"}`;
-              } else if (name === "run_command") {
-                status = "running";
-                const cmd = cleanArg(rawArgs.CommandLine).split(" ")[0];
-                activityText = `Running ${cmd ? path.basename(cmd) : "command"}`;
-              } else if (name === "browser_subagent") {
-                status = "running";
-                activityText = "Testing in browser";
+            if (!latestToolFound) {
+              latestToolFound = true;
+              if (toolCalls.length > 0) {
+                const lastTool = toolCalls[toolCalls.length - 1];
+                const name = lastTool.name;
+                const rawArgs = lastTool.args || {};
+
+                if (name === "ask_question") {
+                  status = "waiting";
+                  activityText = "Waiting for input";
+                } else if (name === "replace_file_content" || name === "write_to_file" || name === "multi_replace_file_content") {
+                  status = "running";
+                  const target = cleanArg(rawArgs.TargetFile);
+                  const fName = target ? path.basename(target) : "file";
+                  activityText = `Editing ${fName}`;
+                  if (!lastEditedFile) lastEditedFile = fName;
+                } else if (name === "view_file") {
+                  status = "running";
+                  const target = cleanArg(rawArgs.AbsolutePath);
+                  const fName = target ? path.basename(target) : "file";
+                  activityText = `Viewing ${fName}`;
+                  if (!lastViewedFile) lastViewedFile = fName;
+                } else if (name === "run_command") {
+                  status = "running";
+                  const cmd = cleanArg(rawArgs.CommandLine).split(" ")[0];
+                  activityText = `Running ${cmd ? path.basename(cmd) : "command"}`;
+                } else if (name === "browser_subagent") {
+                  status = "running";
+                  activityText = "Testing in browser";
+                } else {
+                  status = "running";
+                  activityText = lastTool.toolSummary ? cleanArg(lastTool.toolSummary) : `Working`;
+                }
+              } else if (entry.status === "DONE") {
+                status = "completed";
+                completedAt = time;
+                activityText = "Task Complete";
               } else {
                 status = "running";
-                activityText = lastTool.toolSummary ? cleanArg(lastTool.toolSummary) : `Running ${name}`;
+                activityText = "Working";
               }
-            } else if (entry.status === "DONE") {
-              status = "completed";
-              completedAt = time;
-              activityText = "Task Completed";
             }
           } else if (entry.status === "ERROR" && !latestToolFound) {
             latestToolFound = true;
@@ -330,6 +379,20 @@ class AntigravityAdapter implements AgentAdapter {
             activityText = "Error encountered";
           }
         } catch {}
+      }
+
+      // Determine clean, high-confidence task title without exposing user prompts or private code
+      let taskTitle = "Google Antigravity is working";
+      if (explicitTitle) {
+        taskTitle = explicitTitle;
+      } else if (lastEditedFile) {
+        taskTitle = `Editing ${lastEditedFile}`;
+      } else if (lastViewedFile) {
+        taskTitle = `Working on ${lastViewedFile}`;
+      } else if (activeDoc) {
+        taskTitle = `Editing ${activeDoc}`;
+      } else if (lastToolSummary) {
+        taskTitle = lastToolSummary;
       }
 
       // Ensure startedAt is populated when running/waiting
@@ -436,8 +499,9 @@ class ClaudeCodeAdapter implements AgentAdapter {
       let startedAt: number | undefined;
       let completedAt: number | undefined;
       let status: AgentStatus = "idle";
-      let activityText = "Ready";
-      let taskTitle = "Claude Task";
+      let activityText = "Working";
+      let explicitTitle: string | null = null;
+      let lastEditedFile: string | null = null;
       let cwd: string | undefined;
 
       for (let i = tailLines.length - 1; i >= 0; i--) {
@@ -451,18 +515,25 @@ class ClaudeCodeAdapter implements AgentAdapter {
           if (v.type === "user") {
             startedAt = time;
             const content = v.message?.content;
+            let userText = "";
             if (Array.isArray(content)) {
               const textBlock = content.find((b: any) => b.type === "text");
-              if (textBlock?.text) {
-                taskTitle = textBlock.text.slice(0, 40);
-              }
+              if (textBlock?.text) userText = textBlock.text;
             } else if (typeof content === "string") {
-              taskTitle = content.slice(0, 40);
+              userText = content;
+            }
+
+            const headerMatch = userText.match(/^\s*#+\s+([^\r\n]+)/m);
+            if (headerMatch && headerMatch[1]) {
+              const cleanH = headerMatch[1].replace(/[*_`#]/g, "").trim();
+              if (cleanH.length > 2 && cleanH.length <= 80 && !cleanH.includes("<")) {
+                explicitTitle = cleanH;
+              }
             }
 
             if (status === "idle") {
               status = "running";
-              activityText = "Thinking";
+              activityText = "Working";
             }
             break;
           }
@@ -488,6 +559,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
                 if (tName === "Edit" || tName === "Write" || tName === "Replace") {
                   const fPath = input.file_path ? path.basename(input.file_path) : "file";
                   activityText = `Editing ${fPath}`;
+                  if (!lastEditedFile) lastEditedFile = fPath;
                 } else if (tName === "Bash") {
                   activityText = "Running command";
                 } else if (tName === "Glob" || tName === "Grep") {
@@ -497,11 +569,20 @@ class ClaudeCodeAdapter implements AgentAdapter {
                 }
               } else if (status === "idle") {
                 status = "running";
-                activityText = "Thinking";
+                activityText = "Working";
               }
             }
           }
         } catch {}
+      }
+
+      let taskTitle = "Claude Code is working";
+      if (explicitTitle) {
+        taskTitle = explicitTitle;
+      } else if (lastEditedFile) {
+        taskTitle = `Editing ${lastEditedFile}`;
+      } else if (cwd) {
+        taskTitle = `Working in ${path.basename(cwd)}`;
       }
 
       return {

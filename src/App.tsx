@@ -178,15 +178,10 @@ function AlbumArtwork({
   });
   const [retryNonce, setRetryNonce] = useState(0);
 
-  // For YouTube media, directly render the official YouTube play-logo icon
-  if (isYouTube) {
-    return <YouTubeLogoArtwork size={size} className={className} />;
-  }
-
   const isBrowserOrWeb = source === "browser" || source === "generic";
 
   useEffect(() => {
-    if (!title) return;
+    if (isYouTube || !title) return;
 
     const cTitle = cleanTrackTitle(title, artist);
     const cArtist = cleanArtistName(artist || "");
@@ -209,7 +204,12 @@ function AlbumArtwork({
         active = false;
       };
     }
-  }, [title, artist, src, isBrowserOrWeb, trackKey]);
+  }, [title, artist, src, isBrowserOrWeb, trackKey, isYouTube]);
+
+  // For YouTube media, directly render the official YouTube play-logo icon (placed after all hooks)
+  if (isYouTube) {
+    return <YouTubeLogoArtwork size={size} className={className} />;
+  }
 
   // Derive active online artwork ONLY if it belongs to current track
   const currentOnlineUrl = onlineState.trackKey === trackKey ? onlineState.url : null;
@@ -2689,8 +2689,8 @@ export function App() {
 
                 {/* Center Card: Active Task and Details */}
                 <div className="agent-panel-card">
-                  <div className="agent-task-title" title={activeAgent.taskTitle || "Agent Task"}>
-                    {activeAgent.taskTitle || "Processing Assistant Instructions"}
+                  <div className="agent-task-title" title={activeAgent.taskTitle || `${activeAgent.agentName} is working`}>
+                    {activeAgent.taskTitle || `${activeAgent.agentName} is working`}
                   </div>
                   <div className="agent-task-meta">
                     <div className="agent-active-action">
@@ -2708,7 +2708,17 @@ export function App() {
                           }}
                         />
                       )}
-                      <span>{activeAgent.activeTool || (activeAgent.status === "completed" ? "Task Complete" : "Thinking...")}</span>
+                      <span>
+                        {activeAgent.status === "completed"
+                          ? "Task Complete"
+                          : activeAgent.status === "waiting"
+                          ? "Waiting for input"
+                          : activeAgent.status === "failed"
+                          ? "Task Failed"
+                          : activeAgent.activeTool === activeAgent.taskTitle
+                          ? "In Progress"
+                          : activeAgent.activeTool || "Working"}
+                      </span>
                     </div>
                     <span className="agent-duration">
                       {formatElapsed(activeAgent.startedAt)}
@@ -3123,8 +3133,21 @@ export function App() {
                   <div className="dual-primary-zone">
                     <AgentBrandIcon agentId={activeAgent?.agentId} size={18} />
                     <span className={`dual-agent-text is-${activeAgent?.status}`} title={activeAgent?.activeTool || activeAgent?.activityText || activeAgent?.agentName}>
-                      {activeAgent?.activeTool || activeAgent?.activityText || activeAgent?.statusText || activeAgent?.agentName}
+                      {activeAgent?.activeTool || (activeAgent?.status === "completed" ? "Completed" : activeAgent?.status === "waiting" ? "Waiting for input" : "Working")}
                     </span>
+                    {activeAgent?.status === "running" && (
+                      <span
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: "50%",
+                          background: "#ea580c",
+                          boxShadow: "0 0 5px #ea580c",
+                          marginLeft: 2,
+                          flexShrink: 0
+                        }}
+                      />
+                    )}
                     <span className="dual-agent-timer">
                       {formatElapsed(activeAgent?.startedAt)}
                     </span>
@@ -3236,7 +3259,7 @@ export function App() {
               <div className="agent-bar-left">
                 <AgentBrandIcon agentId={activeAgent?.agentId} size={18} />
                 <span className={`agent-bar-text is-${activeAgent?.status}`} title={activeAgent?.activeTool || activeAgent?.activityText || activeAgent?.agentName}>
-                  {activeAgent?.activeTool || activeAgent?.activityText || activeAgent?.statusText || "Agent Working"}
+                  {activeAgent?.activeTool || (activeAgent?.status === "completed" ? "Completed" : activeAgent?.status === "waiting" ? "Waiting for input" : "Working")}
                 </span>
               </div>
 
@@ -3244,11 +3267,30 @@ export function App() {
                 {activeAgent?.status === "completed" ? (
                   <AgentStatusGlyph status="completed" size={16} />
                 ) : activeAgent?.status === "waiting" ? (
-                  <span style={{ fontSize: 11, fontWeight: 700, color: "#ffbd2e" }}>WAITING</span>
+                  <>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#ffbd2e", boxShadow: "0 0 5px #ffbd2e", marginRight: 2 }} />
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#ffbd2e" }}>WAITING</span>
+                  </>
+                ) : activeAgent?.status === "failed" ? (
+                  <>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#ff453a", boxShadow: "0 0 5px #ff453a", marginRight: 2 }} />
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#ff453a" }}>FAILED</span>
+                  </>
                 ) : (
-                  <span className="agent-bar-timer is-running">
-                    {formatElapsed(activeAgent?.startedAt)}
-                  </span>
+                  <>
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: "50%",
+                        background: "#ea580c",
+                        boxShadow: "0 0 5px #ea580c"
+                      }}
+                    />
+                    <span className="agent-bar-timer is-running">
+                      {formatElapsed(activeAgent?.startedAt)}
+                    </span>
+                  </>
                 )}
               </div>
             </motion.div>
