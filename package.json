@@ -22,7 +22,7 @@
     "postinstall": "node scripts/clean-binaries.cjs"
   },
   "dependencies": {
-    "lucide-react": "^1.61.0"
+    "lucide-react": "^1.62.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
