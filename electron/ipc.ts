@@ -55,19 +55,22 @@ export type ScreenTimeDay = {
   minutes: number;
   formattedTime: string; // "6h 01m"
   isToday: boolean;
+  isUntracked?: boolean;
 };
 
 export type ScreenTimeData = {
   todayMinutes: number;
   todayFormatted: string; // "6h 01m"
   deltaMinutes: number;
-  deltaFormatted: string; // "-4h 36m" or "+45m"
+  deltaFormatted: string | null; // e.g. "-12m" or "+45m" or null if first day
+  deltaLabel?: string; // "vs yesterday at this time"
   isAboveAverage: boolean;
   averageMinutes: number;
   averageFormatted: string; // "10H 38M"
-  days: ScreenTimeDay[]; // [day-2, yesterday, today]
+  days: ScreenTimeDay[]; // 7-day period
   maxScaleHours: number;
   avgPercent: number; // 0-100%
+  topApps?: Array<{ name: string; minutes: number }>;
 };
 
 export type Timer = {
@@ -113,10 +116,24 @@ export type ClipboardItem = {
   sourceApp?: string;
 };
 
+export type IslandTheme =
+  | "midnight"
+  | "graphite"
+  | "ocean"
+  | "emerald"
+  | "rose"
+  | "lavender"
+  | "sunset"
+  | "arctic";
+
+export type CompletedIndicatorMode = "brief" | "persistent";
+
 export type Settings = {
   hotkey: string;
   monitor: "active" | string;
+  theme: IslandTheme;
   accentColor: string;
+  islandOpacity: number;
   animations: boolean;
   expandOnHover: boolean;
   notchMode: boolean;
@@ -124,6 +141,11 @@ export type Settings = {
   iconSize: number;
   closeOnBlur: boolean;
   startWithWindows: boolean;
+  launchMinimized: boolean;
+  showAgentIndicators: boolean;
+  compactTaskDescription: boolean;
+  completedIndicatorDuration: CompletedIndicatorMode;
+  showSpotifyIndicator: boolean;
   positions: Record<string, WindowPosition>;
 };
 
@@ -160,6 +182,7 @@ export type IsletApi = {
     endDrag(): Promise<WindowPosition>;
     collapse(): Promise<void>;
     finishCollapse(): Promise<void>;
+    setCollapsedHeight?(height: number): Promise<void>;
     onExpanded(listener: () => void): () => void;
     onStartCollapse(listener: () => void): () => void;
     onBlurred(listener: () => void): () => void;
@@ -213,8 +236,11 @@ export type IsletApi = {
     removeEvent(id: string): Promise<void>;
   };
   settings: {
+    get(): Promise<Settings>;
     update(patch: Partial<Settings>): Promise<Settings>;
+    setHotkey(hotkey: string): Promise<{ success: boolean; hotkey: string; error?: string }>;
     getStartupStatus(): Promise<boolean>;
+    restoreDefaults(): Promise<Settings>;
   };
   shelf: {
     getPathForFile(file: File): string;

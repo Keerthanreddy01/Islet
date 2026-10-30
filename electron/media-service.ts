@@ -33,6 +33,7 @@ export class MediaService {
   private currentVolume: number = 50;
   private isMuted: boolean = false;
   private lastVolumeSetTime: number = 0;
+  private isStopped: boolean = false;
 
   constructor(logger?: Logger) {
     this.log = logger || ((msg) => console.log(`[MediaService] ${msg}`));
@@ -47,7 +48,32 @@ export class MediaService {
     this.cmdFile = path.join(this.artCacheDir, "cmd.txt");
   }
 
-  public start(): void {
+  private resolveWorkerScript(): string | null {
+    // 1. If running inside app.asar, check app.asar.unpacked directory
+    if (__dirname.includes("app.asar")) {
+      const unpackedCandidate = path.join(
+        __dirname.replace("app.asar", "app.asar.unpacked"),
+        "media-worker.ps1"
+      );
+      if (fs.existsSync(unpackedCandidate)) {
+        this.log(`[MediaService] Located unpacked worker script: ${unpackedCandidate}`);
+        return unpackedCandidate;
+      }
+      if (process.resourcesPath) {
+        const resCandidate = path.join(
+          process.resourcesPath,
+          "app.asar.unpacked",
+          "dist-electron",
+          "media-worker.ps1"
+        );
+        if (fs.existsSync(resCandidate)) {
+          this.log(`[MediaService] Located resources unpacked worker script: ${resCandidate}`);
+          return resCandidate;
+        }
+      }
+    }
+
+    // 2. Check candidate paths on disk (development or direct file system)
     const candidatePaths = [
       path.join(__dirname, "media-worker.ps1"),
       path.join(__dirname, "../electron/media-worker.ps1"),
@@ -55,11 +81,45 @@ export class MediaService {
       path.join(process.cwd(), "dist-electron/media-worker.ps1")
     ];
 
-    const resolvedScript = candidatePaths.find((p) => fs.existsSync(p));
+    for (const p of candidatePaths) {
+      if (!p.includes("app.asar") && fs.existsSync(p)) {
+        this.log(`[MediaService] Located disk worker script: ${p}`);
+        return p;
+      }
+    }
+
+    // 3. Fallback / Guarantee: If running from inside app.asar (or file missing on disk),
+    // extract worker script directly from asar archive into a real disk file that powershell can execute!
+    try {
+      const sourceInAsar = candidatePaths.find((p) => fs.existsSync(p));
+      if (sourceInAsar) {
+        const content = fs.readFileSync(sourceInAsar, "utf8");
+        const cacheDir = path.join(os.tmpdir(), "islet-workers");
+        if (!fs.existsSync(cacheDir)) {
+          fs.mkdirSync(cacheDir, { recursive: true });
+        }
+        const cachedPath = path.join(cacheDir, "media-worker.ps1");
+        fs.writeFileSync(cachedPath, content, "utf8");
+        this.log(`[MediaService] Extracted worker script to disk cache: ${cachedPath}`);
+        return cachedPath;
+      }
+    } catch (extractErr) {
+      this.log("[MediaService ERROR] Failed to extract worker script from asar:", extractErr);
+    }
+
+    return null;
+  }
+
+  public start(): void {
+    this.isStopped = false;
+    if (this.workerProcess && !this.workerProcess.killed) {
+      this.log("[MediaService] Worker process is already running");
+      return;
+    }
+
+    const resolvedScript = this.resolveWorkerScript();
     if (!resolvedScript) {
-      this.log(
-        `[MediaService ERROR] Could not locate media-worker.ps1 in candidate paths: ${JSON.stringify(candidatePaths)}`
-      );
+      this.log("[MediaService ERROR] Could not locate or extract media-worker.ps1");
       return;
     }
 
@@ -97,6 +157,14 @@ export class MediaService {
       this.workerProcess.on("exit", (code: number | null, signal: string | null) => {
         this.log(`[MediaService] Worker process exited. Code=${code}, Signal=${signal}`);
         this.workerProcess = null;
+        if (!this.isStopped) {
+          this.log("[MediaService] Worker exited unexpectedly; scheduling restart in 3s");
+          setTimeout(() => {
+            if (!this.isStopped && !this.workerProcess) {
+              this.start();
+            }
+          }, 3000);
+        }
       });
 
       this.workerProcess.on("error", (err: Error) => {
@@ -108,6 +176,7 @@ export class MediaService {
   }
 
   public stop(): void {
+    this.isStopped = true;
     this.log("[MediaService] Stopping media service");
     if (this.pauseGraceTimer) {
       clearTimeout(this.pauseGraceTimer);
@@ -245,53 +314,12 @@ export class MediaService {
       const isPlaying = data.status === "playing";
       const isPaused = data.status === "paused";
 
-      if (data.artworkPath && fs.existsSync(data.artworkPath)) {
-        this.currentArtworkPath = data.artworkPath;
-      }
-
       const appLower = (data.app || "media").toLowerCase();
       const titleLower = (data.title || "").toLowerCase();
       const artistLower = (data.artist || "").toLowerCase();
       const albumLower = (data.album || "").toLowerCase();
       const sourceHint = (((data as any).sourceHint as string) || "").toLowerCase();
       const playbackType = (((data as any).playbackType as string) || "").toLowerCase();
-
-      let source: MediaState["source"] = "generic";
-      if (
-        appLower.includes("spotify") ||
-        sourceHint === "spotify" ||
-        albumLower.includes("spotify") ||
-        titleLower.includes("spotify") ||
-        artistLower.includes("spotify")
-      ) {
-        source = "spotify";
-      } else if (appLower.includes("apple") || sourceHint === "apple-music") {
-        source = "apple-music";
-      } else if (appLower.includes("vlc")) {
-        source = "vlc";
-      } else if (
-        titleLower.includes("youtube") ||
-        artistLower.includes("youtube") ||
-        albumLower.includes("youtube") ||
-        appLower.includes("youtube") ||
-        sourceHint === "youtube" ||
-        playbackType === "video"
-      ) {
-        source = "youtube";
-      } else if (data.album && data.album.length > 0) {
-        // Track has a genuine music album name (e.g. Spotify Web Player)
-        source = "spotify";
-      } else if (
-        appLower.includes("brave") ||
-        appLower.includes("chrome") ||
-        appLower.includes("edge") ||
-        appLower.includes("firefox") ||
-        appLower.includes("opera") ||
-        appLower.includes("vivaldi") ||
-        appLower.includes("browser")
-      ) {
-        source = "browser";
-      }
 
       const isBrowserApp =
         appLower.includes("brave") ||
@@ -300,10 +328,45 @@ export class MediaService {
         appLower.includes("firefox") ||
         appLower.includes("opera") ||
         appLower.includes("vivaldi") ||
-        appLower.includes("browser") ||
-        source === "browser";
+        appLower.includes("arc") ||
+        appLower.includes("zen") ||
+        appLower.includes("browser");
 
-      const currentSongKey = `${data.title || ""}:::${data.artist || ""}`;
+      const isNativeSpotify = appLower.includes("spotify");
+
+      const isYouTubeIdentified =
+        !isNativeSpotify && (
+          sourceHint === "youtube" ||
+          titleLower.includes("youtube") ||
+          titleLower.includes("youtu.be") ||
+          artistLower.includes("youtube") ||
+          albumLower.includes("youtube") ||
+          appLower.includes("youtube")
+        );
+
+      const isSpotifyWeb =
+        !isNativeSpotify &&
+        !isYouTubeIdentified &&
+        isBrowserApp &&
+        sourceHint === "spotify";
+
+      let source: MediaState["source"] = "generic";
+      if (isNativeSpotify || isSpotifyWeb) {
+        source = "spotify";
+      } else if (isYouTubeIdentified) {
+        source = "youtube";
+      } else if (appLower.includes("apple") || appLower.includes("itunes") || sourceHint === "apple-music") {
+        source = "apple-music";
+      } else if (appLower.includes("vlc") || sourceHint === "vlc") {
+        source = "vlc";
+      } else if (isBrowserApp || sourceHint === "browser") {
+        source = "browser";
+      } else {
+        // Unknown or generic media players
+        source = "generic";
+      }
+
+      const currentSongKey = `${source}:::${data.app || ""}:::${data.title || ""}:::${data.artist || ""}`;
       const isTrackChange = this.currentArtworkSongKey !== currentSongKey;
 
       if (isTrackChange) {
@@ -313,9 +376,8 @@ export class MediaService {
         this.currentArtworkUrl = undefined;
       }
 
-      // Native players (e.g. Spotify Desktop) provide genuine album artwork in data.artworkPath.
-      // Chromium browsers only provide browser executable icons (e.g. Brave lion), so ignore artworkPath for browser apps.
-      if (!isBrowserApp && data.artworkPath && fs.existsSync(data.artworkPath)) {
+      // Valid artwork from GSMTC thumbnail stream (Spotify desktop/web, YouTube thumbnail, etc.)
+      if (data.artworkPath && fs.existsSync(data.artworkPath)) {
         try {
           const stat = fs.statSync(data.artworkPath);
           if (stat.isFile() && stat.size > 0) {
@@ -324,9 +386,8 @@ export class MediaService {
         } catch {}
       }
 
-      // If playing in browser or native artwork is missing/empty, resolve high-res cover
-      // (Exclude YouTube normal video view which uses official YouTube branding)
-      if ((isBrowserApp || !this.currentArtworkPath) && data.title && source !== "youtube") {
+      // If artwork is missing/empty, resolve high-res cover (exclude YouTube and web videos which use video thumbnail or video branding)
+      if (!this.currentArtworkPath && data.title && source !== "youtube" && source !== "browser") {
         this.tryResolveOnlineArtwork(data.title, data.artist || "");
       }
 

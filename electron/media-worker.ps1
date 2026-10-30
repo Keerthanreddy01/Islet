@@ -157,43 +157,61 @@ $lastArtAttemptCount = 0
 $consecutiveNullSnapshots = 0
 $inCommandTransitionTicks = 0
 
-function Get-MediaSnapshot {
-    $session = $mgr.GetCurrentSession()
-    $status = ""
-    if ($session) {
-        $info = $session.GetPlaybackInfo()
-        if ($info) {
-            $status = $info.PlaybackStatus.ToString().ToLower()
+function Get-ActiveMediaSession {
+    $all = $mgr.GetSessions()
+    $selectedSession = $null
+    $selectedStatus = ""
+
+    # Priority 1: Check if the system's current session is actively playing
+    $curr = $mgr.GetCurrentSession()
+    if ($curr) {
+        $pInfo = $curr.GetPlaybackInfo()
+        if ($pInfo -and $pInfo.PlaybackStatus.ToString().ToLower() -eq "playing") {
+            $selectedSession = $curr
+            $selectedStatus = "playing"
         }
     }
 
-    # If no current session or current session is closed/stopped, check all sessions
-    if (-not $session -or $status -eq "closed" -or $status -eq "stopped") {
-        $session = $null
-        $all = $mgr.GetSessions()
-        if ($all -and $all.Count -gt 0) {
-            # Priority 1: session currently playing
-            foreach ($s in $all) {
-                $pInfo = $s.GetPlaybackInfo()
-                if ($pInfo -and $pInfo.PlaybackStatus.ToString().ToLower() -eq "playing") {
-                    $session = $s
-                    $status = "playing"
-                    break
-                }
-            }
-            # Priority 2: session currently paused
-            if (-not $session) {
-                foreach ($s in $all) {
-                    $pInfo = $s.GetPlaybackInfo()
-                    if ($pInfo -and $pInfo.PlaybackStatus.ToString().ToLower() -eq "paused") {
-                        $session = $s
-                        $status = "paused"
-                        break
-                    }
-                }
+    # Priority 2: If current session is not playing, scan all sessions for any session that IS playing
+    if (-not $selectedSession -and $all -and $all.Count -gt 0) {
+        foreach ($s in $all) {
+            $pInfo = $s.GetPlaybackInfo()
+            if ($pInfo -and $pInfo.PlaybackStatus.ToString().ToLower() -eq "playing") {
+                $selectedSession = $s
+                $selectedStatus = "playing"
+                break
             }
         }
     }
+
+    # Priority 3: If no session is playing, prefer current session if paused
+    if (-not $selectedSession -and $curr) {
+        $pInfo = $curr.GetPlaybackInfo()
+        if ($pInfo -and $pInfo.PlaybackStatus.ToString().ToLower() -eq "paused") {
+            $selectedSession = $curr
+            $selectedStatus = "paused"
+        }
+    }
+
+    # Priority 4: If still no session, scan all sessions for any paused session
+    if (-not $selectedSession -and $all -and $all.Count -gt 0) {
+        foreach ($s in $all) {
+            $pInfo = $s.GetPlaybackInfo()
+            if ($pInfo -and $pInfo.PlaybackStatus.ToString().ToLower() -eq "paused") {
+                $selectedSession = $s
+                $selectedStatus = "paused"
+                break
+            }
+        }
+    }
+
+    return @{ Session = $selectedSession; Status = $selectedStatus }
+}
+
+function Get-MediaSnapshot {
+    $activeInfo = Get-ActiveMediaSession
+    $session = $activeInfo.Session
+    $status = $activeInfo.Status
 
     # If no session or status is neither playing nor paused, no active media
     if (-not $session -or ($status -ne "playing" -and $status -ne "paused")) {
@@ -228,36 +246,76 @@ function Get-MediaSnapshot {
     $artistLower = $artist.ToLower()
     $albumLower = $album.ToLower()
 
-    if ($appLower -match "spotify" -or $titleLower -match "spotify" -or $artistLower -match "spotify" -or $albumLower -match "spotify") {
+    # 1. Native application identification by SourceAppUserModelId
+    if ($appLower -match "spotify") {
         $sourceHint = "spotify"
-    } elseif ($appLower -match "apple" -or $titleLower -match "apple music") {
+    } elseif ($appLower -match "apple|itunes") {
         $sourceHint = "apple-music"
     } elseif ($appLower -match "vlc") {
         $sourceHint = "vlc"
-    } elseif ($titleLower -match "youtube" -or $artistLower -match "youtube" -or $appLower -match "youtube" -or $albumLower -match "youtube") {
-        $sourceHint = "youtube"
     } else {
-        # Check active browser window titles to distinguish Spotify Web vs YouTube
-        try {
-            $browserProcs = Get-Process -Name "brave", "chrome", "msedge", "firefox", "opera", "vivaldi", "spotify" -ErrorAction SilentlyContinue |
-                Where-Object { $_.MainWindowTitle }
-            foreach ($bp in $browserProcs) {
-                $wt = $bp.MainWindowTitle.ToLower()
-                if ($wt -match "spotify") {
-                    $sourceHint = "spotify"
-                    break
-                }
-            }
-            if (-not $sourceHint) {
+        # 2. Check if the session is from a web browser
+        $isBrowser = $appLower -match "brave|chrome|msedge|edge|firefox|opera|operagx|vivaldi|arc|zen|browser"
+
+        # 3. Direct metadata signals (YouTube, Apple Music)
+        if ($titleLower -match "youtube|youtu\.be" -or $artistLower -match "youtube" -or $albumLower -match "youtube") {
+            $sourceHint = "youtube"
+        } elseif ($titleLower -match "apple\s*music" -or $artistLower -match "apple\s*music") {
+            $sourceHint = "apple-music"
+        } elseif ($isBrowser) {
+            # Browser process window inspection for active tab / window title
+            $targetProcNames = @()
+            if ($appLower -match "brave") { $targetProcNames = @("brave") }
+            elseif ($appLower -match "chrome") { $targetProcNames = @("chrome") }
+            elseif ($appLower -match "msedge|edge") { $targetProcNames = @("msedge") }
+            elseif ($appLower -match "firefox") { $targetProcNames = @("firefox") }
+            elseif ($appLower -match "opera") { $targetProcNames = @("opera", "operagx") }
+            elseif ($appLower -match "vivaldi") { $targetProcNames = @("vivaldi") }
+            elseif ($appLower -match "arc") { $targetProcNames = @("arc") }
+            elseif ($appLower -match "zen") { $targetProcNames = @("zen") }
+            else { $targetProcNames = @("brave", "chrome", "msedge", "firefox", "opera", "operagx", "vivaldi", "arc", "zen") }
+
+            try {
+                $browserProcs = Get-Process -Name $targetProcNames -ErrorAction SilentlyContinue |
+                    Where-Object { $_.MainWindowTitle }
+
+                # Check if any browser window title has YouTube
                 foreach ($bp in $browserProcs) {
                     $wt = $bp.MainWindowTitle.ToLower()
-                    if ($wt -match "youtube") {
+                    if ($wt -match "youtube|youtu\.be") {
                         $sourceHint = "youtube"
                         break
                     }
                 }
+
+                # Check for Spotify Web: ONLY if the window title specifically indicates Spotify Web Player
+                # (e.g. "Spotify - Web Player" or ends with "- Spotify" / "• Spotify")
+                if (-not $sourceHint) {
+                    foreach ($bp in $browserProcs) {
+                        $wt = $bp.MainWindowTitle.ToLower()
+                        if ($wt -match "spotify" -and ($wt -match "web\s*player" -or $wt -match "(?:-|\u2013|\u2014|\u2022)\s*spotify")) {
+                            $sourceHint = "spotify"
+                            break
+                        }
+                    }
+                }
+            } catch {}
+
+            # If not explicitly YouTube or Spotify, but playbackType is video:
+            if (-not $sourceHint) {
+                if ($playbackType -eq "video") {
+                    if ($titleLower -match "-\s*youtube") {
+                        $sourceHint = "youtube"
+                    } else {
+                        $sourceHint = "browser"
+                    }
+                } else {
+                    $sourceHint = "browser"
+                }
             }
-        } catch {}
+        } else {
+            $sourceHint = "generic"
+        }
     }
 
     $timeline = $session.GetTimelineProperties()
@@ -282,7 +340,7 @@ function Get-MediaSnapshot {
     }
 
     # Handle artwork
-    $artSig = "$title::$artist"
+    $artSig = "$app::$sourceHint::$title::$artist"
     $artPath = ""
     $artFileValid = $false
 
@@ -297,12 +355,13 @@ function Get-MediaSnapshot {
         } catch {}
     }
 
-    # Reset retry counter on song change
+    # Reset retry counter and artwork path on session/song change
     if ($artSig -ne $script:lastArtSig) {
         $script:lastArtSig = $artSig
         $script:lastArtAttemptCount = 0
         $script:lastArtFile = ""
         $artFileValid = $false
+        $artPath = ""
     }
 
     # If artwork file is not yet valid and we haven't exceeded retry attempts (~1s)
@@ -355,7 +414,7 @@ function Get-MediaSnapshot {
             $artPath = ""
         }
     } else {
-        $artPath = $script:lastArtFile
+        $artPath = if ($artFileValid) { $script:lastArtFile } else { "" }
     }
 
     $volScalar = -1
@@ -430,13 +489,8 @@ while ($true) {
                     try { (New-Object -ComObject WScript.Shell).SendKeys([char]174) } catch {}
                 }
             } else {
-                $session = $mgr.GetCurrentSession()
-                if (-not $session) {
-                    $all = $mgr.GetSessions()
-                    if ($all -and $all.Count -gt 0) {
-                        $session = $all[0]
-                    }
-                }
+                $activeInfo = Get-ActiveMediaSession
+                $session = $activeInfo.Session
                 if ($session -and $cmd) {
                     $script:inCommandTransitionTicks = 12 # Guard ~1.2s during track command
                     if ($cmd -eq "play-pause") {

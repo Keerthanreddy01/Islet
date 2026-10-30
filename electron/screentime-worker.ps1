@@ -1,69 +1,78 @@
+# Windows Foreground Window & Active App Tracker for Islet
+# Emits real-time foreground process information over stdout
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
+$code = @'
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+
+public class Win32ScreenHelper {
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", SetLastError=true)]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct LASTINPUTINFO {
+        public uint cbSize;
+        public uint dwTime;
+    }
+
+    [DllImport("user32.dll")]
+    public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+}
+'@
+
 try {
-    $events = Get-WinEvent -FilterHashtable @{LogName='System'; Id=6005,6006,42,107; StartTime=(Get-Date).Date.AddDays(-6)} -ErrorAction SilentlyContinue |
-        Sort-Object TimeCreated
-
-    $now = Get-Date
-    $days = [ordered]@{}
-    for ($i = 6; $i -ge 0; $i--) {
-        $d = (Get-Date).Date.AddDays(-$i)
-        $key = $d.ToString('yyyy-MM-dd')
-        $days[$key] = [PSCustomObject]@{
-            Day = $d.ToString('ddd').ToUpper()
-            Date = $key
-            Minutes = 0
-        }
-    }
-
-    $isOn = $false
-    $onTime = $null
-
-    foreach ($ev in $events) {
-        if ($ev.Id -eq 6005 -or $ev.Id -eq 107) {
-            if (-not $isOn) {
-                $isOn = $true
-                $onTime = $ev.TimeCreated
-            }
-        } elseif ($ev.Id -eq 6006 -or $ev.Id -eq 42) {
-            if ($isOn -and $onTime) {
-                $offTime = $ev.TimeCreated
-                $cur = $onTime
-                while ($cur -lt $offTime) {
-                    $dayKey = $cur.ToString('yyyy-MM-dd')
-                    $nextMidnight = $cur.Date.AddDays(1)
-                    $end = if ($offTime -lt $nextMidnight) { $offTime } else { $nextMidnight }
-                    $spanMin = ($end - $cur).TotalMinutes
-                    if ($days.Contains($dayKey)) {
-                        $days[$dayKey].Minutes += [Math]::Round($spanMin)
-                    }
-                    $cur = $end
-                }
-                $isOn = $false
-                $onTime = $null
-            }
-        }
-    }
-
-    if ($isOn -and $onTime) {
-        $cur = $onTime
-        while ($cur -lt $now) {
-            $dayKey = $cur.ToString('yyyy-MM-dd')
-            $nextMidnight = $cur.Date.AddDays(1)
-            $end = if ($now -lt $nextMidnight) { $now } else { $nextMidnight }
-            $spanMin = ($end - $cur).TotalMinutes
-            if ($days.Contains($dayKey)) {
-                $days[$dayKey].Minutes += [Math]::Round($spanMin)
-            }
-            $cur = $end
-        }
-    }
-
-    $outList = @($days.Values)
-    $json = $outList | ConvertTo-Json -Compress
-    [Console]::Out.WriteLine($json)
-    [Console]::Out.Flush()
+    Add-Type -TypeDefinition $code -ErrorAction Stop
 } catch {
-    [Console]::Out.WriteLine("[]")
+    [Console]::Out.WriteLine('{"type":"error","message":"Win32ScreenHelper compilation failed"}')
     [Console]::Out.Flush()
+    exit 1
+}
+
+$lii = New-Object Win32ScreenHelper+LASTINPUTINFO
+$size = [System.Runtime.InteropServices.Marshal]::SizeOf($lii)
+$lii.cbSize = [uint32]$size
+
+[Console]::Out.WriteLine('{"type":"ready"}')
+[Console]::Out.Flush()
+
+while ($true) {
+    try {
+        $hwnd = [Win32ScreenHelper]::GetForegroundWindow()
+        $pidVal = 0
+        $null = [Win32ScreenHelper]::GetWindowThreadProcessId($hwnd, [ref]$pidVal)
+
+        $procName = ""
+        if ($pidVal -gt 0) {
+            $p = Get-Process -Id $pidVal -ErrorAction SilentlyContinue
+            if ($p) {
+                $procName = $p.ProcessName
+            }
+        }
+
+        $idleSec = 0.0
+        if ([Win32ScreenHelper]::GetLastInputInfo([ref]$lii)) {
+            $diffMs = [Environment]::TickCount - $lii.dwTime
+            if ($diffMs -ge 0) {
+                $idleSec = [Math]::Round(($diffMs / 1000.0), 1)
+            }
+        }
+
+        $obj = @{
+            type = "tick"
+            app = $procName
+            idleSec = $idleSec
+        }
+        $json = $obj | ConvertTo-Json -Compress
+        [Console]::Out.WriteLine($json)
+        [Console]::Out.Flush()
+    } catch {
+        # ignore tick error
+    }
+
+    Start-Sleep -Seconds 1
 }

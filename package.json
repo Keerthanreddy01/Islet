@@ -2,6 +2,13 @@
   "name": "islet",
   "version": "0.1.0",
   "description": "A Dynamic Island-inspired Windows desktop panel.",
+  "author": "Keerthan Reddy <keerthan101011@gmail.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/Keerthanreddy01/Islet",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Keerthanreddy01/Islet.git"
+  },
   "main": "dist-electron/main.js",
   "type": "module",
   "scripts": {
@@ -15,44 +22,62 @@
     "postinstall": "node scripts/clean-binaries.cjs"
   },
   "dependencies": {
-    "framer-motion": "^11.11.17",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "lucide-react": "^1.61.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "^33.2.1",
+    "autoprefixer": "^10.6.1",
     "concurrently": "^9.1.0",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "framer-motion": "^11.11.17",
+    "postcss": "^8.5.31",
     "prettier": "^3.3.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^3.4.19",
     "typescript": "^5.6.3",
     "vite": "^6.0.1",
-    "wait-on": "^8.0.1",
-    "electron-builder": "^25.1.8"
+    "wait-on": "^8.0.1"
   },
   "build": {
     "appId": "com.islet.desktop",
     "productName": "Islet",
     "compression": "maximum",
+    "directories": {
+      "output": "release"
+    },
     "files": [
       "dist/**/*",
+      "!dist/win-unpacked/**/*",
+      "!dist/*.exe",
+      "!dist/*.blockmap",
       "dist-electron/**/*",
       "assets/**/*",
+      "!assets/installerSidebar.bmp",
       "package.json"
     ],
+    "asarUnpack": [
+      "dist-electron/*.ps1"
+    ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": false,
+      "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "installerSidebar": "assets/installerSidebar.bmp",
-      "uninstallerSidebar": "assets/installerSidebar.bmp",
-      "include": "build/installer.nsh"
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/installerSidebar.bmp",
+      "include": "build/installer.nsh",
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
     }
   }
 }

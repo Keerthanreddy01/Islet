@@ -1,13 +1,14 @@
 # Dependencies
 node_modules/
+.pnp/
+.pnp.js
 
-# Build output and local tooling
+# Build output & packaging artifacts
 dist/
 dist-electron/
-.vite/
-coverage/
 out/
 release/
+build-output/
 *.builder-effective-config.yaml
 *.exe
 *.msi
@@ -15,25 +16,69 @@ release/
 *.blockmap
 *.zip
 *.tar.gz
+*.dmg
+*.AppImage
 
-# Local configuration and secrets
+# Vite & TypeScript cache
+.vite/
+*.tsbuildinfo
+.eslintcache
+
+# Testing & Coverage
+coverage/
+.nyc_output/
+
+# Local configuration & secrets
 .env
 .env.*
+.env.local
+.env.*.local
 !.env.example
 *.local
 *.secret
 *.key
 *.pem
+*.cert
+*.pfx
+*.p12
 
-# Logs and temporary files
+# Logs, crash dumps & temporary files
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 logs/
 tmp/
 temp/
+*.tmp
+*.dump
+*.stackdump
 
-# Editor and operating-system files
+# Operating system artifacts
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+desktop.ini
+
+# IDE & Editor files
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.sublime-project
+*.sublime-workspace
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+!.vscode/launch.json
+
+# Website repository (maintained separately)
+Islet-Website/
+website/

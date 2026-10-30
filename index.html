@@ -1,13 +1,19 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" style="background: transparent !important; background-color: transparent !important; margin: 0; padding: 0; overflow: hidden;">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: islet-art: http://127.0.0.1:5173 ws://127.0.0.1:5173 http://localhost:5173 ws://localhost:5173; img-src 'self' data: islet-art: blob: https:; connect-src 'self' https: http://127.0.0.1:5173 ws://127.0.0.1:5173 http://localhost:5173 ws://localhost:5173;" />
-    <title>Islet</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: islet-art: http://127.0.0.1:5173 ws://127.0.0.1:5173 http://localhost:5173 ws://localhost:5173; img-src 'self' data: islet-art: blob: https:; font-src 'self' data: https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self' https: http://127.0.0.1:5173 ws://127.0.0.1:5173 http://localhost:5173 ws://localhost:5173;" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <title>Islet — Fluid Dynamic Island for Windows</title>
+    <meta name="description" content="A sleek, fluid Dynamic Island for Windows. Ambient glanceability for Spotify, YouTube, Antigravity AI agents, screen time, and productivity tools." />
   </head>
-  <body>
-    <div id="root"></div>
+  <body style="background: transparent !important; background-color: transparent !important; margin: 0; padding: 0; overflow: hidden;">
+    <div id="root" style="background: transparent !important; background-color: transparent !important; margin: 0; padding: 0; overflow: hidden;"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
+

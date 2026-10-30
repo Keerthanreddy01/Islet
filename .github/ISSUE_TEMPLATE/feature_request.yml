@@ -1,0 +1,38 @@
+name: 💡 Feature Request
+description: Propose a new feature, widget idea, or improvement for Islet
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        We appreciate suggestions and feature requests! Please outline the proposed idea, user value, and any design references.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Is your feature request related to a problem?
+      description: A clear description of what the problem or limitation is.
+      placeholder: "I'm always frustrated when..."
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution or Feature
+      description: Describe what you would like Islet to do or look like.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions or workarounds you've considered.
+  - type: textarea
+    id: ui_ux
+    attributes:
+      label: Visual Design / Interaction Ideas
+      description: Describe animations, layout, hotkeys, or Apple Dynamic Island inspirations.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Contribution Willingness
+      options:
+        - label: I am interested in contributing a pull request for this feature.

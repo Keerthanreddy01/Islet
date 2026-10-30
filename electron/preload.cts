@@ -10,6 +10,7 @@ const api: IsletApi = {
     endDrag: () => ipcRenderer.invoke("window:end-drag"),
     collapse: () => ipcRenderer.invoke("window:collapse"),
     finishCollapse: () => ipcRenderer.invoke("window:finish-collapse"),
+    setCollapsedHeight: (height: number) => ipcRenderer.invoke("window:set-collapsed-height", height),
     onExpanded: (listener) => {
       const handler = () => listener();
       ipcRenderer.on("window:expanded", handler);
@@ -101,8 +102,11 @@ const api: IsletApi = {
     removeEvent: (id) => ipcRenderer.invoke("calendar:remove-event", id)
   },
   settings: {
+    get: () => ipcRenderer.invoke("settings:get"),
     update: (patch) => ipcRenderer.invoke("settings:update", patch),
-    getStartupStatus: () => ipcRenderer.invoke("settings:get-startup-status")
+    setHotkey: (hotkey: string) => ipcRenderer.invoke("settings:set-hotkey", hotkey),
+    getStartupStatus: () => ipcRenderer.invoke("settings:get-startup-status"),
+    restoreDefaults: () => ipcRenderer.invoke("settings:restore-defaults")
   },
   shelf: {
     getPathForFile: (file: File) => {

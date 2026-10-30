@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState, useCallback, memo } from "react";
-import type { MediaState, ScreenTimeData, AgentState, AgentStatus } from "../electron/ipc";
+import type { MediaState, ScreenTimeData, ScreenTimeDay, AgentState, AgentStatus, AgentActivityItem, Settings } from "../electron/ipc";
+import { SettingsPanel, THEMES } from "./SettingsPanel";
 import appLogo from "../logo.png";
 
 const artworkMemoryCache = new Map<string, string>();
@@ -206,22 +207,20 @@ function AlbumArtwork({
     }
   }, [title, artist, src, isBrowserOrWeb, trackKey, isYouTube]);
 
-  // For YouTube media, directly render the official YouTube play-logo icon (placed after all hooks)
-  if (isYouTube) {
-    return <YouTubeLogoArtwork size={size} className={className} />;
-  }
-
   // Derive active online artwork ONLY if it belongs to current track
   const currentOnlineUrl = onlineState.trackKey === trackKey ? onlineState.url : null;
   const isSrcFailed = failedState.trackKey === trackKey && failedState.failedUrl === src;
 
+  // For YouTube media, render the official YouTube logo icon if no thumbnail is available or if src failed
+  if (isYouTube && (!src || isSrcFailed)) {
+    return <YouTubeLogoArtwork size={size} className={className} />;
+  }
+
   let displayUrl: string | null = null;
-  if (isBrowserOrWeb) {
-    // For browsers, prefer genuine online album cover over browser executable logo
+  if (src && !isSrcFailed) {
+    displayUrl = src;
+  } else if (currentOnlineUrl) {
     displayUrl = currentOnlineUrl;
-  } else {
-    // For native players (Spotify), prefer native src unless failed, otherwise fall back to onlineUrl
-    displayUrl = src && !isSrcFailed ? src : currentOnlineUrl;
   }
 
   const handleImgError = () => {
@@ -279,9 +278,9 @@ function AlbumArtwork({
 }
 
 // Micro Equalizer Animation
-function MicroEq() {
+function MicroEq({ isPlaying = true }: { isPlaying?: boolean }) {
   return (
-    <div className="mini-eq" aria-hidden="true" title="Playing">
+    <div className={`mini-eq ${isPlaying ? "is-playing" : "is-paused"}`} aria-hidden="true" title={isPlaying ? "Playing" : "Paused"}>
       <span className="eq-bar b1" />
       <span className="eq-bar b2" />
       <span className="eq-bar b3" />
@@ -433,9 +432,20 @@ const CompactVolumeSlider = memo(function CompactVolumeSlider({
   }, []);
 
   const calculateVolumeFromX = useCallback((clientX: number): number => {
-    if (!trackRef.current) return currentVolumeRef.current;
-    const rect = trackRectRef.current || trackRef.current.getBoundingClientRect();
-    if (!rect || rect.width <= 0) return currentVolumeRef.current;
+    const track = trackRef.current;
+    if (!track) return currentVolumeRef.current;
+
+    // Dynamically query current bounding rect to handle any animations or positioning
+    const rect = track.getBoundingClientRect();
+    if (!rect || rect.width <= 0) {
+      if (trackRectRef.current && trackRectRef.current.width > 0) {
+        const r = trackRectRef.current;
+        const ratio = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+        return Math.max(0, Math.min(100, Math.round(ratio * 100)));
+      }
+      return currentVolumeRef.current;
+    }
+    trackRectRef.current = rect;
 
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     return Math.max(0, Math.min(100, Math.round(ratio * 100)));
@@ -471,12 +481,12 @@ const CompactVolumeSlider = memo(function CompactVolumeSlider({
     setIsDragging(true);
     onDragStateChangeRef.current?.(true);
 
-    const target = e.currentTarget;
+    const sliderEl = e.currentTarget;
     const pointerId = e.pointerId;
 
     try {
-      target.setPointerCapture(pointerId);
-    } catch {}
+      sliderEl.setPointerCapture(pointerId);
+    } catch { }
 
     // Calculate initial click value and update immediately
     const startVal = calculateVolumeFromX(e.clientX);
@@ -502,15 +512,11 @@ const CompactVolumeSlider = memo(function CompactVolumeSlider({
       trackRectRef.current = null;
 
       try {
-        if (target.hasPointerCapture(pointerId)) {
-          target.releasePointerCapture(pointerId);
+        if (sliderEl.hasPointerCapture(pointerId)) {
+          sliderEl.releasePointerCapture(pointerId);
         }
-      } catch {}
+      } catch { }
 
-      target.removeEventListener("pointermove", onPointerMove);
-      target.removeEventListener("pointerup", onPointerEnd);
-      target.removeEventListener("pointercancel", onPointerEnd);
-      target.removeEventListener("lostpointercapture", onPointerEnd);
       window.removeEventListener("pointermove", onPointerMove, true);
       window.removeEventListener("pointerup", onPointerEnd, true);
       window.removeEventListener("pointercancel", onPointerEnd, true);
@@ -520,13 +526,41 @@ const CompactVolumeSlider = memo(function CompactVolumeSlider({
       applyVolume(finalVal, true);
     };
 
-    target.addEventListener("pointermove", onPointerMove);
-    target.addEventListener("pointerup", onPointerEnd);
-    target.addEventListener("pointercancel", onPointerEnd);
-    target.addEventListener("lostpointercapture", onPointerEnd);
     window.addEventListener("pointermove", onPointerMove, { capture: true, passive: false });
     window.addEventListener("pointerup", onPointerEnd, { capture: true });
     window.addEventListener("pointercancel", onPointerEnd, { capture: true });
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    let delta = 0;
+    if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+      delta = 5;
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+      delta = -5;
+    } else if (e.key === "PageUp") {
+      delta = 10;
+    } else if (e.key === "PageDown") {
+      delta = -10;
+    } else if (e.key === "Home") {
+      applyVolume(0, true);
+      e.preventDefault();
+      return;
+    } else if (e.key === "End") {
+      applyVolume(100, true);
+      e.preventDefault();
+      return;
+    } else if (e.key === "m" || e.key === "M") {
+      void window.islet?.media?.volumeMute?.();
+      e.preventDefault();
+      return;
+    }
+
+    if (delta !== 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      const nextVol = Math.max(0, Math.min(100, currentVolumeRef.current + delta));
+      applyVolume(nextVol, true);
+    }
   };
 
   // Teardown ONLY on unmount
@@ -552,6 +586,13 @@ const CompactVolumeSlider = memo(function CompactVolumeSlider({
       exit={{ opacity: 0, width: 0, scale: 0.94 }}
       transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
       onPointerDown={handlePointerDown}
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
+      role="slider"
+      aria-label="Volume Slider"
+      aria-valuenow={localVolume}
+      aria-valuemin={0}
+      aria-valuemax={100}
       title={`Volume: ${localVolume}%`}
     >
       <div
@@ -624,16 +665,54 @@ function GenericMusicBadgeSvg({ size = 20 }: { size?: number }) {
   );
 }
 
+function VlcBadgeSvg({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="12" fill="#ff8800" />
+      <path
+        d="M12 4.5l2.8 8.5h-5.6l2.8-8.5zm-4.2 10.5l-.8 2.5h10l-.8-2.5h-8.4zm-1.4 4l-.6 1.8h12.4l-.6-1.8h-11.2z"
+        fill="#ffffff"
+      />
+    </svg>
+  );
+}
+
+function BrowserBadgeSvg({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="12" fill="#2d3748" />
+      <circle cx="12" cy="12" r="7.5" stroke="#cbd5e1" strokeWidth="1.2" />
+      <ellipse cx="12" cy="12" rx="3.5" ry="7.5" stroke="#cbd5e1" strokeWidth="1.2" />
+      <line x1="4.5" y1="12" x2="19.5" y2="12" stroke="#cbd5e1" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
+function getMediaPlatformName(source?: string, isYouTube?: boolean): string {
+  if (isYouTube || source === "youtube") return "YouTube";
+  if (source === "spotify") return "Spotify";
+  if (source === "apple-music") return "Apple Music";
+  if (source === "vlc") return "VLC";
+  if (source === "browser") return "Browser Media";
+  return "Media";
+}
+
 function MediaSourceBadge({ source, size = 20 }: { source?: string; size?: number }) {
-  const s = (source || "").toLowerCase();
-  if (s.includes("spotify")) {
+  const s = (source || "").toLowerCase().trim();
+  if (s === "spotify") {
     return <SpotifyBadgeSvg size={size} />;
   }
-  if (s.includes("apple")) {
+  if (s === "apple-music" || s.includes("apple")) {
     return <AppleMusicBadgeSvg size={size} />;
   }
-  if (s.includes("youtube")) {
+  if (s === "youtube") {
     return <YouTubeBadgeSvg size={size} />;
+  }
+  if (s === "vlc") {
+    return <VlcBadgeSvg size={size} />;
+  }
+  if (s === "browser") {
+    return <BrowserBadgeSvg size={size} />;
   }
   return <GenericMusicBadgeSvg size={size} />;
 }
@@ -669,11 +748,11 @@ function ScreenTimeSvg() {
   );
 }
 
-function FocusSvg() {
+function SettingsGearSvg() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.0" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />
-      <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </svg>
   );
 }
@@ -710,10 +789,59 @@ function CodexGlyph({ size = 18 }: { size?: number }) {
   );
 }
 
-function AgentBrandIcon({ agentId, size = 18 }: { agentId?: string; size?: number }) {
+function AgentBrandIcon({ agentId, size = 15 }: { agentId?: string; size?: number }) {
+  if (agentId === "antigravity") return <AntigravityGlyph size={size} />;
   if (agentId === "claude") return <ClaudeGlyph size={size} />;
   if (agentId === "codex") return <CodexGlyph size={size} />;
-  return <AntigravityGlyph size={size} />;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+    </svg>
+  );
+}
+
+function AnimatedLoadingDots() {
+  return (
+    <span className="agent-loading-dots" aria-hidden="true">
+      <span className="dot dot-1">.</span>
+      <span className="dot dot-2">.</span>
+      <span className="dot dot-3">.</span>
+    </span>
+  );
+}
+
+function formatElapsedShort(startedAt?: number): string {
+  if (!startedAt) return "0s";
+  const sec = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}m ${s}s`;
+}
+
+function getAgentProjectName(agent: AgentActivityItem): string {
+  if (agent.cwd) {
+    const parts = agent.cwd.split(/[\\/]/).filter(Boolean);
+    if (parts.length > 0) return parts[parts.length - 1];
+  }
+  return agent.agentName || "Agent";
+}
+
+function getAgentPrompt(agent: AgentActivityItem): string {
+  const text = (agent.activityText || agent.taskTitle || agent.activeTool || "").trim();
+  const proj = getAgentProjectName(agent);
+  if (text.toLowerCase() === proj.toLowerCase()) return "";
+  return text;
+}
+
+function getAgentStatusLabel(agent: AgentActivityItem): string {
+  if (agent.status === "completed") return "Done";
+  if (agent.status === "waiting") return "Waiting";
+  if (agent.statusText) return agent.statusText;
+  if (agent.activeTool && agent.activeTool.toLowerCase().includes("edit")) return "Editing";
+  if (agent.status === "running") return "Working";
+  return "Working";
 }
 
 function AgentStatusGlyph({ status, size = 16 }: { status: AgentStatus; size?: number }) {
@@ -742,6 +870,27 @@ function AgentStatusGlyph({ status, size = 16 }: { status: AgentStatus; size?: n
     );
   }
   return null;
+}
+
+function AgentRowIndicator({ agent, size = 13 }: { agent: AgentActivityItem; size?: number }) {
+  if (agent.status === "completed") {
+    return <span className="agent-row-indicator is-completed" title="Done" />;
+  }
+  if (agent.status === "waiting") {
+    return <span className="agent-row-indicator is-waiting" title="Waiting for input" />;
+  }
+  const statusLabel = getAgentStatusLabel(agent);
+  if (statusLabel === "Editing") {
+    return <span className="agent-row-indicator is-editing" title="Editing" />;
+  }
+  if (agent.agentId && (agent.agentId === "antigravity" || agent.agentId === "claude" || agent.agentId === "codex")) {
+    return (
+      <span className="agent-row-indicator is-brand">
+        <AgentBrandIcon agentId={agent.agentId} size={size} />
+      </span>
+    );
+  }
+  return <span className="agent-row-indicator is-running" title="Running" />;
 }
 
 function SwapArrowsIcon({ size = 12 }: { size?: number }) {
@@ -1288,47 +1437,35 @@ function ScreenTimeRadarIcon() {
 const getInitialScreenTimeData = (): ScreenTimeData => {
   const now = new Date();
   const dayNames = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-  const d2 = new Date(now);
-  d2.setDate(now.getDate() - 2);
-  const d1 = new Date(now);
-  d1.setDate(now.getDate() - 1);
-
   const formatDate = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+  const days: ScreenTimeDay[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    days.push({
+      day: dayNames[d.getDay()],
+      date: formatDate(d),
+      minutes: 0,
+      formattedTime: i === 0 ? "0h 00m" : "No data",
+      isToday: i === 0,
+      isUntracked: i !== 0
+    });
+  }
+
   return {
-    todayMinutes: 360,
-    todayFormatted: "6h 00m",
+    todayMinutes: 0,
+    todayFormatted: "0h 00m",
     deltaMinutes: 0,
-    deltaFormatted: "+0m",
-    isAboveAverage: true,
-    averageMinutes: 480,
-    averageFormatted: "8H 00M",
-    days: [
-      {
-        day: dayNames[d2.getDay()],
-        date: formatDate(d2),
-        minutes: 420,
-        formattedTime: "7h 00m",
-        isToday: false
-      },
-      {
-        day: dayNames[d1.getDay()],
-        date: formatDate(d1),
-        minutes: 460,
-        formattedTime: "7h 40m",
-        isToday: false
-      },
-      {
-        day: dayNames[now.getDay()],
-        date: formatDate(now),
-        minutes: 360,
-        formattedTime: "6h 00m",
-        isToday: true
-      }
-    ],
+    deltaFormatted: null,
+    deltaLabel: "Loading screen time...",
+    isAboveAverage: false,
+    averageMinutes: 0,
+    averageFormatted: "0H 00M",
+    days,
     maxScaleHours: 12,
-    avgPercent: 66.6
+    avgPercent: 50
   };
 };
 
@@ -1429,23 +1566,38 @@ function ScreenTimePanel({ onBackToTools, onClose, onSwitchToMusic, hasActiveMed
           <div className="screentime-header-left">
             <ScreenTimeRadarIcon />
             <span className="screentime-big-time">{data.todayFormatted}</span>
-            <span
-              className="screentime-delta-badge"
-              style={
-                !data.isAboveAverage
-                  ? {
+            {data.deltaFormatted ? (
+              <span
+                className="screentime-delta-badge"
+                title={data.deltaLabel || `${data.deltaFormatted} vs yesterday at this time`}
+                style={
+                  data.isAboveAverage
+                    ? {
                       background: "rgba(48, 209, 88, 0.18)",
                       color: "#30d158",
                       boxShadow: "none"
                     }
-                  : undefined
-              }
-            >
-              {data.deltaFormatted}
-            </span>
+                    : undefined
+                }
+              >
+                {data.deltaFormatted}
+              </span>
+            ) : (
+              <span
+                className="screentime-delta-badge"
+                title={data.deltaLabel || "Screen time tracking active"}
+                style={{
+                  background: "rgba(255, 255, 255, 0.08)",
+                  color: "rgba(255, 255, 255, 0.55)",
+                  boxShadow: "none"
+                }}
+              >
+                Today
+              </span>
+            )}
           </div>
           <div className="screentime-header-right">
-            <span className="screentime-avg-label">
+            <span className="screentime-avg-label" title="7-day average of tracked days">
               AVG <span className="screentime-avg-val">{data.averageFormatted}</span>
             </span>
           </div>
@@ -1456,24 +1608,27 @@ function ScreenTimePanel({ onBackToTools, onClose, onSwitchToMusic, hasActiveMed
           <div className="screentime-rows-list">
             {data.days.map((d, index) => {
               const isToday = d.isToday;
+              const isUntracked = Boolean(d.isUntracked);
               const isOvertime = d.minutes > data.averageMinutes;
-              const dayPercent = Math.min(100, (d.minutes / totalScaleMinutes) * 100);
+              const dayPercent = isUntracked ? 0 : Math.min(100, (d.minutes / totalScaleMinutes) * 100);
 
-              const tooltip = isToday
-                ? `${d.day} (Today): ${d.formattedTime} (${data.deltaFormatted} vs avg)`
-                : `${d.day}: ${d.formattedTime}`;
+              const tooltip = isUntracked
+                ? `${d.day}: Untracked (before tracking began)`
+                : isToday
+                  ? `${d.day} (Today): ${d.formattedTime}${data.deltaFormatted ? ` (${data.deltaFormatted} vs yesterday)` : ""}`
+                  : `${d.day}: ${d.formattedTime}`;
 
               return (
                 <div
                   key={d.day + d.date}
-                  className={`screentime-bar-row ${hoveredDay === d.day ? "is-hovered" : ""}`}
+                  className={`screentime-bar-row ${hoveredDay === d.day ? "is-hovered" : ""} ${isUntracked ? "is-untracked" : ""}`}
                   onMouseEnter={() => setHoveredDay(d.day)}
                   onMouseLeave={() => setHoveredDay(null)}
                   title={tooltip}
                 >
                   <span
                     className="screentime-day-label"
-                    style={isToday ? { color: "#ffffff" } : undefined}
+                    style={isToday ? { color: "#ffffff" } : isUntracked ? { opacity: 0.4 } : undefined}
                   >
                     {d.day}
                   </span>
@@ -1494,7 +1649,12 @@ function ScreenTimePanel({ onBackToTools, onClose, onSwitchToMusic, hasActiveMed
                       style={{ left: `${avgPercent.toFixed(1)}%` }}
                     />
 
-                    {!isToday ? (
+                    {isUntracked ? (
+                      <div
+                        className="screentime-bar-untracked"
+                        title={`${d.day}: Untracked`}
+                      />
+                    ) : !isToday ? (
                       <motion.div
                         className="screentime-bar-gray"
                         initial={{ width: 0 }}
@@ -1502,7 +1662,7 @@ function ScreenTimePanel({ onBackToTools, onClose, onSwitchToMusic, hasActiveMed
                         transition={{
                           duration: 0.45,
                           ease: [0.16, 1, 0.3, 1],
-                          delay: 0.05 + index * 0.05
+                          delay: 0.05 + index * 0.04
                         }}
                       />
                     ) : (
@@ -1680,7 +1840,7 @@ export type StoredImage = {
 
 export function App() {
   const [state, setState] = useState<InteractionState>("collapsed");
-  const [activeTab, setActiveTab] = useState<"music" | "shelf" | "tools" | "timer" | "screentime" | "agent">("tools");
+  const [activeTab, setActiveTab] = useState<"music" | "shelf" | "tools" | "timer" | "screentime" | "agent" | "settings">("tools");
   const [media, setMedia] = useState<MediaState | null>(null);
   const [agentState, setAgentState] = useState<AgentState | null>(null);
   const [, setAgentTicker] = useState(0);
@@ -1688,13 +1848,45 @@ export function App() {
   const { time, weather } = useLiveTimeAndWeather();
   const { currentPositionMs, seekTo } = usePlaybackClock(media);
 
+  // In-Island Settings State
+  const [settings, setSettings] = useState<Settings>({
+    hotkey: "Ctrl+Alt+Space",
+    monitor: "active",
+    theme: "midnight",
+    accentColor: "#0a84ff",
+    islandOpacity: 1.0,
+    animations: true,
+    expandOnHover: false,
+    notchMode: true,
+    snapToEdge: true,
+    iconSize: 64,
+    closeOnBlur: true,
+    startWithWindows: true,
+    launchMinimized: false,
+    showAgentIndicators: true,
+    compactTaskDescription: true,
+    completedIndicatorDuration: "brief",
+    showSpotifyIndicator: true,
+    positions: {}
+  });
+
+  useEffect(() => {
+    window.islet?.settings?.get?.().then((s) => {
+      if (s) setSettings((prev) => ({ ...prev, ...s }));
+    }).catch(console.error);
+  }, []);
+
+  const handleUpdateSettings = useCallback((patch: Partial<Settings>) => {
+    setSettings((prev) => ({ ...prev, ...patch }));
+    void window.islet?.settings?.update?.(patch);
+  }, []);
+
   // Quick Action States
   const [customMinutes, setCustomMinutes] = useState(15);
   const [totalSeconds, setTotalSeconds] = useState(15 * 60);
   const [timerSeconds, setTimerSeconds] = useState(15 * 60);
   const [isTimerActiveSession, setIsTimerActiveSession] = useState(false);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [isFocusOn, setIsFocusOn] = useState(false);
   const timerProgress = totalSeconds > 0 ? Math.max(0, Math.min(1, timerSeconds / totalSeconds)) : 0;
 
   useEffect(() => {
@@ -1736,14 +1928,42 @@ export function App() {
   );
 
   // Active AI Developer Agent Detection
-  const activeAgent = agentState?.activeAgent || null;
+  const rawAgents = agentState?.agents || [];
+  const candidateAgents = rawAgents.length > 0 ? rawAgents : (agentState?.activeAgent ? [agentState.activeAgent] : []);
+  const activeAgentList = candidateAgents.filter((agent) => {
+    if (!agent || agent.status === "idle" || agent.status === "unknown") return false;
+    if (
+      (settings.completedIndicatorDuration || "brief") === "brief" &&
+      agent.status === "completed" &&
+      agent.completedAt &&
+      (Date.now() - agent.completedAt > 5000)
+    ) {
+      return false;
+    }
+    return true;
+  });
+
+  const activeAgent = activeAgentList[0] || null;
   const isAgentWorking = Boolean(
-    activeAgent &&
-    activeAgent.status !== "idle" &&
-    activeAgent.status !== "unknown"
+    (settings.showAgentIndicators ?? true) && activeAgentList.length > 0
   );
-  const isDualMode = Boolean(isAgentWorking && hasActiveMedia && media);
+  const hasMultipleTasks = Boolean(isAgentWorking && activeAgentList.length > 1);
+  const showSpotifyPill = Boolean(
+    (settings.showSpotifyIndicator ?? true) && hasActiveMedia && media
+  );
+  const isDualMode = Boolean(isAgentWorking && showSpotifyPill);
   const primaryMode = agentState?.primaryMode ?? "agent";
+
+  // Dynamically sync collapsed window height when multiple tasks are running
+  useEffect(() => {
+    if (state === "expanded" || state === "expanding") return;
+    if (hasMultipleTasks) {
+      const targetH = Math.min(180, 14 + activeAgentList.length * 30);
+      void window.islet?.window?.setCollapsedHeight?.(targetH);
+    } else {
+      void window.islet?.window?.setCollapsedHeight?.(48);
+    }
+  }, [hasMultipleTasks, activeAgentList.length, state]);
 
   // Real-time 1s ticker for elapsed agent duration
   useEffect(() => {
@@ -1757,7 +1977,14 @@ export function App() {
   const handleSwapPrimary = useCallback((e?: React.MouseEvent) => {
     e?.stopPropagation();
     window.islet?.agents?.swapPrimary?.().then((nextState) => {
-      if (nextState) setAgentState(nextState);
+      if (nextState) {
+        setAgentState(nextState);
+        const nextMode = nextState.primaryMode;
+        if (stateRef.current === "expanded") {
+          const nextH = nextMode === "agent" ? 184 : 152;
+          void window.islet?.window?.setExpanded?.(true, nextH);
+        }
+      }
     }).catch(console.error);
   }, []);
 
@@ -1814,7 +2041,11 @@ export function App() {
 
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape" && isExpanded) {
-        triggerCollapse();
+        if (activeTabRef.current === "settings") {
+          switchTab("tools");
+        } else {
+          triggerCollapse();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -1830,21 +2061,26 @@ export function App() {
     };
   }, [isExpanded]);
 
-  const switchTab = (tab: "music" | "shelf" | "tools" | "timer" | "screentime" | "agent") => {
+  const switchTab = (tab: "music" | "shelf" | "tools" | "timer" | "screentime" | "agent" | "settings") => {
     setActiveTab(tab);
     if (isExpanded) {
+      const isDual = Boolean(isAgentWorking && hasActiveMedia && media);
       const h =
-        tab === "shelf"
-          ? 176
-          : tab === "timer"
-          ? 118
-          : tab === "screentime"
-          ? 134
-          : tab === "agent"
-          ? (hasActiveMedia && media ? 204 : 160)
-          : tab === "music"
-          ? 152
-          : 48;
+        tab === "settings"
+          ? 250
+          : tab === "shelf"
+            ? 176
+            : tab === "timer"
+              ? 118
+              : tab === "screentime"
+                ? 188
+                : tab === "agent"
+                  ? (hasActiveMedia && media ? 184 : 144)
+                  : tab === "music"
+                    ? 152
+                    : isDual && primaryMode === "agent"
+                      ? 184
+                      : 48;
       void window.islet.window.setExpanded(true, h);
     }
   };
@@ -1852,28 +2088,35 @@ export function App() {
   const collapseSafetyTimer = useRef<number | null>(null);
 
   const triggerExpand = useCallback((panelHeight?: number) => {
-    if (stateRef.current === "expanded") return;
+    const isDual = Boolean(isAgentWorking && hasActiveMedia && media);
+    const defaultH = (
+      activeTab === "settings" ? 250 :
+        activeTab === "shelf" ? 176 :
+          activeTab === "timer" ? 118 :
+            activeTab === "screentime" ? 188 :
+              isDual ? (primaryMode === "agent" ? 184 : 152) :
+                activeTab === "agent" || (isAgentWorking && primaryMode === "agent") ? 144 :
+                  activeTab === "music" || hasActiveMedia ? 152 :
+                    48
+    );
+    const h = panelHeight || defaultH;
+
+    if (stateRef.current === "expanded") {
+      void window.islet?.window?.setExpanded?.(true, h);
+      return;
+    }
     if (collapseSafetyTimer.current) {
       clearTimeout(collapseSafetyTimer.current);
       collapseSafetyTimer.current = null;
     }
     setState("expanding");
     window.islet?.window?.setIgnoreMouseEvents?.(false);
-    const h = panelHeight || (
-      activeTab === "shelf" ? 176 :
-        activeTab === "timer" ? 118 :
-          activeTab === "screentime" ? 134 :
-            activeTab === "agent" ? (hasActiveMedia && media ? 204 : 160) :
-              activeTab === "music" && hasActiveMedia ? 152 :
-                isAgentWorking && primaryMode === "agent" ? (hasActiveMedia && media ? 204 : 160) :
-                  48
-    );
     void window.islet.window.setExpanded(true, h).catch((err: unknown) => {
       console.error("Expand failed:", err);
       setState("collapsed");
       window.islet?.window?.setIgnoreMouseEvents?.(true, { forward: true });
     });
-  }, [activeTab, hasActiveMedia]);
+  }, [activeTab, hasActiveMedia, media, isAgentWorking, primaryMode]);
 
   // Synchronize activeVolume with external volume updates (ignoring stale backend responses during/after user interaction)
   useEffect(() => {
@@ -1892,6 +2135,13 @@ export function App() {
 
   const handleDragStateChange = useCallback((dragging: boolean) => {
     isAdjustingVolumeRef.current = dragging;
+    if (!dragging) {
+      setTimeout(() => {
+        if (!isHoveredSurfaceRef.current && !isAdjustingVolumeRef.current && !isDraggingFileRef.current) {
+          window.islet?.window?.setIgnoreMouseEvents?.(true, { forward: true });
+        }
+      }, 50);
+    }
   }, []);
 
   const triggerCollapse = useCallback(() => {
@@ -1941,6 +2191,10 @@ export function App() {
   const isHoveredSurfaceRef = useRef(false);
   const stateRef = useRef(state);
   stateRef.current = state;
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   const isDraggingFileRef = useRef(isDraggingFile);
   isDraggingFileRef.current = isDraggingFile;
 
@@ -1949,6 +2203,10 @@ export function App() {
     if (hoverCollapseTimer.current) {
       clearTimeout(hoverCollapseTimer.current);
       hoverCollapseTimer.current = null;
+    }
+    // Respect user hover-to-expand preference
+    if (!settingsRef.current.expandOnHover) {
+      return;
     }
     // Expand quickly on hover when collapsed or collapsing
     if (stateRef.current === "collapsed" || stateRef.current === "collapsing") {
@@ -2007,10 +2265,10 @@ export function App() {
       if (!surface) return;
       const rect = surface.getBoundingClientRect();
       const over = (
-        latestE.clientX >= rect.left &&
-        latestE.clientX <= rect.right &&
-        latestE.clientY >= rect.top &&
-        latestE.clientY <= rect.bottom
+        latestE.clientX >= rect.left - 2 &&
+        latestE.clientX <= rect.right + 2 &&
+        latestE.clientY >= rect.top - 2 &&
+        latestE.clientY <= rect.bottom + 2
       );
 
       if (over !== isOverNotch) {
@@ -2020,6 +2278,7 @@ export function App() {
           handleMouseEnter();
         } else {
           if (!isAdjustingVolumeRef.current && !isDraggingFileRef.current) {
+            api.window.setIgnoreMouseEvents(true, { forward: true });
             handleMouseLeave();
           }
         }
@@ -2037,6 +2296,9 @@ export function App() {
     const handleWindowLeave = () => {
       if (isOverNotch) {
         isOverNotch = false;
+        if (!isAdjustingVolumeRef.current && !isDraggingFileRef.current) {
+          api.window.setIgnoreMouseEvents(true, { forward: true });
+        }
         handleMouseLeave();
       }
     };
@@ -2044,11 +2306,13 @@ export function App() {
     window.addEventListener("mousemove", handleMouseMove, { passive: true });
     window.addEventListener("mouseleave", handleWindowLeave);
     document.addEventListener("mouseleave", handleWindowLeave);
+    window.addEventListener("blur", handleWindowLeave);
 
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseleave", handleWindowLeave);
       document.removeEventListener("mouseleave", handleWindowLeave);
+      window.removeEventListener("blur", handleWindowLeave);
     };
   }, [handleMouseEnter, handleMouseLeave]);
 
@@ -2230,18 +2494,19 @@ export function App() {
       ? Math.min(100, Math.max(0, (currentPositionMs / media.durationMs) * 100))
       : 0;
 
+  const isSettingsActive = activeTab === "settings";
   const isShelfActive = activeTab === "shelf" && storedImages.length > 0;
   const isTimerActive = activeTab === "timer";
   const isScreenTimeActive = activeTab === "screentime";
   const isAgentActive = Boolean(
     activeAgent && (
       activeTab === "agent" ||
-      (isAgentWorking && primaryMode === "agent" && activeTab !== "shelf" && activeTab !== "tools" && activeTab !== "timer" && activeTab !== "screentime")
+      (isAgentWorking && primaryMode === "agent" && activeTab !== "shelf" && activeTab !== "tools" && activeTab !== "timer" && activeTab !== "screentime" && activeTab !== "settings")
     )
   );
   const isMusicActive = Boolean(
     hasActiveMedia && media && !isAgentActive &&
-    activeTab !== "shelf" && activeTab !== "tools" && activeTab !== "timer" && activeTab !== "screentime"
+    activeTab !== "shelf" && activeTab !== "tools" && activeTab !== "timer" && activeTab !== "screentime" && activeTab !== "settings"
   );
   // Show collapsed timer capsule when timer is active (running or paused)
   const showCollapsedTimer = isTimerActiveSession;
@@ -2252,7 +2517,11 @@ export function App() {
   let targetRadius = "21px";
 
   if (isExpanded && !isCollapsing) {
-    if (isShelfActive) {
+    if (isSettingsActive) {
+      targetWidth = 380;
+      targetHeight = 250;
+      targetRadius = "28px";
+    } else if (isShelfActive) {
       targetWidth = 372;
       targetHeight = 176;
       targetRadius = "28px";
@@ -2262,11 +2531,11 @@ export function App() {
       targetRadius = "28px";
     } else if (isScreenTimeActive) {
       targetWidth = 356;
-      targetHeight = 134;
+      targetHeight = 188;
       targetRadius = "28px";
     } else if (isAgentActive) {
       targetWidth = 372;
-      targetHeight = hasActiveMedia && media ? 204 : 160;
+      targetHeight = hasActiveMedia && media ? 184 : 144;
       targetRadius = "28px";
     } else if (isMusicActive) {
       targetWidth = 368;
@@ -2280,17 +2549,27 @@ export function App() {
     }
   } else {
     if (isDualMode) {
-      targetWidth = 364;
+      targetWidth = 368;
       targetHeight = 44;
       targetRadius = "22px";
     } else if (isAgentWorking) {
-      targetWidth = 330;
-      targetHeight = 42;
-      targetRadius = "21px";
+      if (hasMultipleTasks) {
+        targetWidth = 360;
+        targetHeight = Math.min(160, 16 + activeAgentList.length * 30);
+        targetRadius = "18px";
+      } else {
+        const projName = activeAgent ? getAgentProjectName(activeAgent) : "";
+        const promptText = activeAgent ? getAgentPrompt(activeAgent) : "";
+        const totalChars = (projName?.length || 0) + (promptText?.length || 0);
+        // Responsive width between 260px (short task name) and 356px (long task name)
+        targetWidth = Math.min(356, Math.max(260, 170 + totalChars * 5.2));
+        targetHeight = 42;
+        targetRadius = "21px";
+      }
     } else if (showCollapsedTimer) {
       targetWidth = 200;
-      targetHeight = 38;
-      targetRadius = "19px";
+      targetHeight = 42;
+      targetRadius = "21px";
     } else if (hasActiveMedia && media) {
       // Sleek music pill (356px x 44px with 22px continuous pill radius)
       targetWidth = 356;
@@ -2298,6 +2577,9 @@ export function App() {
       targetRadius = "22px";
     }
   }
+
+  const currentTheme = THEMES.find((t) => t.id === (settings.theme || "midnight")) || THEMES[0];
+  const dynamicAccent = settings.accentColor || currentTheme.accent;
 
   return (
     <div
@@ -2308,13 +2590,25 @@ export function App() {
       onDrop={handleDrop}
     >
       <motion.main
-        className={`islet-notch-surface ${
-          state === "expanded" || state === "expanding"
+        className={`islet-notch-surface ${state === "expanded" || state === "expanding"
             ? "mode-expanded"
             : state === "collapsing"
-            ? "mode-collapsing"
-            : "mode-collapsed"
-        } ${isDraggingFile ? "notch-drop-active" : ""}`}
+              ? "mode-collapsing"
+              : "mode-collapsed"
+          } ${isDraggingFile ? "notch-drop-active" : ""}`}
+        data-theme={settings.theme || "midnight"}
+        style={{
+          backgroundColor: currentTheme.bg,
+          borderColor: currentTheme.border,
+          color: currentTheme.text,
+          opacity: settings.islandOpacity ?? 1,
+          ["--island-bg" as any]: currentTheme.bg,
+          ["--island-bg-card" as any]: currentTheme.bgCard,
+          ["--island-border" as any]: currentTheme.border,
+          ["--island-text" as any]: currentTheme.text,
+          ["--island-text-sub" as any]: currentTheme.textSub,
+          ["--island-accent" as any]: dynamicAccent
+        }}
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{
           opacity: 1,
@@ -2328,12 +2622,14 @@ export function App() {
         }}
         exit={{ opacity: 0, scale: 0.95 }}
         transition={
-          isCollapsing
-            ? {
+          !settings.animations
+            ? { duration: 0 }
+            : isCollapsing
+              ? {
                 duration: 0.28,
                 ease: [0.32, 0.72, 0, 1]
               }
-            : {
+              : {
                 duration: 0.26,
                 ease: [0.16, 1, 0.3, 1]
               }
@@ -2380,7 +2676,14 @@ export function App() {
 
         <AnimatePresence initial={false}>
           {isExpanded && !isCollapsing ? (
-            isShelfActive ? (
+            isSettingsActive ? (
+              <SettingsPanel
+                settings={settings}
+                onUpdateSettings={handleUpdateSettings}
+                onBackToTools={() => switchTab("tools")}
+                onClose={triggerCollapse}
+              />
+            ) : isShelfActive ? (
               /* =================================================================
                  EXPANDED TEMPORARY IMAGE SHELF
                  ================================================================= */
@@ -2417,7 +2720,7 @@ export function App() {
                         title={`Back to: ${media.title}`}
                         style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
                       >
-                        <MediaSourceBadge source={media.source} size={15} />
+                        <MediaSourceBadge source={isYouTubeMedia ? "youtube" : media.source} size={15} />
                         <span className="shelf-song-title">Song</span>
                       </button>
                     )}
@@ -2551,7 +2854,7 @@ export function App() {
                           title={`Switch to: ${media.title}`}
                           style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
                         >
-                          <MediaSourceBadge source={media.source} size={14} />
+                          <MediaSourceBadge source={isYouTubeMedia ? "youtube" : media.source} size={14} />
                           <span>Song</span>
                         </button>
                       )}
@@ -2632,123 +2935,176 @@ export function App() {
                 onSwitchToMusic={() => switchTab("music")}
                 hasActiveMedia={hasActiveMedia}
                 songTitle={media?.title}
-                mediaSource={media?.source}
+                mediaSource={isYouTubeMedia ? "youtube" : media?.source}
               />
             ) : isAgentActive && activeAgent ? (
               /* =================================================================
                  EXPANDED DEVELOPER AGENT ACTIVITY PANEL
                  ================================================================= */
-              <motion.div
-                key="expanded-agent"
-                className="expanded-agent-panel"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-                transition={{ duration: 0.18, ease: [0.32, 0.72, 0, 1] }}
-                onPointerDown={(e) => e.stopPropagation()}
-              >
-                {/* Top Row: Brand & Name, Status Pill, and Actions */}
-                <div className="agent-panel-header">
-                  <div className="agent-panel-brand">
-                    <AgentBrandIcon agentId={activeAgent.agentId} size={20} />
-                    <span className="agent-panel-name">{activeAgent.agentName}</span>
-                    <span className={`agent-status-pill is-${activeAgent.status}`}>
-                      {activeAgent.statusText || activeAgent.status}
-                    </span>
-                  </div>
+              (() => {
+                const currentToolText = activeAgent.activeTool || activeAgent.statusText || "Working";
+                const fileMatch = currentToolText.match(/(?:Editing|Viewing|Writing|Modifying|Running)\s+([^\s]+)/i);
+                const activeFile = fileMatch ? fileMatch[1] : null;
+                const topRowAction = activeFile ? `Editing ${activeFile}` : currentToolText;
 
-                  <div className="agent-panel-actions">
-                    {hasActiveMedia && media && (
-                      <button
-                        className="agent-panel-swap-btn"
-                        onClick={handleSwapPrimary}
-                        title="Swap focus to Spotify"
-                      >
-                        <SwapArrowsIcon size={12} />
-                        <span>Music</span>
-                      </button>
-                    )}
-                    <button
-                      className="music-tools-btn"
-                      onClick={() => switchTab("tools")}
-                      title="Open Tools"
-                      aria-label="Tools"
-                    >
-                      <ToolsGridIcon />
-                    </button>
-                    <button
-                      className="music-close-btn"
-                      onClick={triggerCollapse}
-                      title="Minimize to capsule (Esc)"
-                      aria-label="Minimize"
-                    >
-                      <CloseIcon />
-                    </button>
-                  </div>
-                </div>
+                // Determine clean, non-repetitive task description for middle card
+                const cleanTaskTitle = (() => {
+                  if (activeAgent.taskTitle) {
+                    let title = activeAgent.taskTitle.trim();
+                    title = title.replace(/<[^>]*>/g, "").replace(/[*_`#]/g, "").trim();
+                    if (activeFile && title.toLowerCase().includes(activeFile.toLowerCase())) {
+                      return `${activeAgent.agentName} Session`;
+                    }
+                    if (title.length > 3 && title !== topRowAction) {
+                      return title;
+                    }
+                  }
+                  return `${activeAgent.agentName} Active Session`;
+                })();
 
-                {/* Center Card: Active Task and Details */}
-                <div className="agent-panel-card">
-                  <div className="agent-task-title" title={activeAgent.taskTitle || `${activeAgent.agentName} is working`}>
-                    {activeAgent.taskTitle || `${activeAgent.agentName} is working`}
-                  </div>
-                  <div className="agent-task-meta">
-                    <div className="agent-active-action">
-                      {activeAgent.status === "completed" ? (
-                        <AgentStatusGlyph status="completed" size={14} />
-                      ) : (
-                        <span
-                          className="agent-tool-dot"
-                          style={{
-                            width: 6,
-                            height: 6,
-                            borderRadius: "50%",
-                            background: activeAgent.status === "waiting" ? "#ffbd2e" : activeAgent.status === "failed" ? "#ff453a" : "#ea580c",
-                            boxShadow: "0 0 6px currentColor"
-                          }}
-                        />
-                      )}
-                      <span>
-                        {activeAgent.status === "completed"
-                          ? "Task Complete"
-                          : activeAgent.status === "waiting"
-                          ? "Waiting for input"
-                          : activeAgent.status === "failed"
-                          ? "Task Failed"
-                          : activeAgent.activeTool === activeAgent.taskTitle
-                          ? "In Progress"
-                          : activeAgent.activeTool || "Working"}
-                      </span>
-                    </div>
-                    <span className="agent-duration">
-                      {formatElapsed(activeAgent.startedAt)}
-                    </span>
-                  </div>
-                </div>
+                return (
+                  <motion.div
+                    key="expanded-agent"
+                    className="expanded-agent-panel"
+                    initial={{ opacity: 0, scale: 0.98 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.98 }}
+                    transition={{ duration: 0.18, ease: [0.32, 0.72, 0, 1] }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                    {/* Top Row — Agent Activity */}
+                    <div className="agent-panel-header">
+                      <div className="agent-panel-brand">
+                        <AgentBrandIcon agentId={activeAgent.agentId} size={18} />
+                        <span className="agent-panel-name">{activeAgent.agentName}</span>
+                        <span className="agent-header-sep">•</span>
+                        <span className="agent-header-file" title={topRowAction}>
+                          {topRowAction}
+                        </span>
+                      </div>
 
-                {/* Bottom: Spotify Playback Mini-Strip if active */}
-                {hasActiveMedia && media && (
-                  <div className="agent-spotify-strip" onClick={() => switchTab("music")} title="Click to open full player">
-                    <div className="agent-spotify-left">
-                      <MediaSourceBadge source={media.source} size={20} />
-                      <div className="agent-spotify-text">
-                        <span className="agent-spotify-title">{media.title}</span>
-                        <span className="agent-spotify-artist">{media.artist || "Unknown Artist"}</span>
+                      <div className="agent-panel-actions">
+                        <span className="agent-header-timer">
+                          {formatElapsed(activeAgent.startedAt)}
+                        </span>
+
+                        <div className="agent-header-status-wrap">
+                          {activeAgent.status === "completed" ? (
+                            <AgentStatusGlyph status="completed" size={14} />
+                          ) : activeAgent.status === "waiting" ? (
+                            <span className="agent-status-dot is-waiting" title="Waiting for input" />
+                          ) : activeAgent.status === "failed" ? (
+                            <span className="agent-status-dot is-failed" title="Failed" />
+                          ) : (
+                            <span className="agent-status-dot is-running" title="Running" />
+                          )}
+                        </div>
+
+                        {hasActiveMedia && media && (
+                          <button
+                            className="agent-panel-swap-btn"
+                            onClick={handleSwapPrimary}
+                            title={`Swap focus to ${getMediaPlatformName(media.source, isYouTubeMedia)} (⇄)`}
+                            aria-label={`Swap to ${getMediaPlatformName(media.source, isYouTubeMedia)}`}
+                          >
+                            <SwapArrowsIcon size={12} />
+                          </button>
+                        )}
+                        <button
+                          className="music-tools-btn"
+                          onClick={() => switchTab("tools")}
+                          title="Open Tools"
+                          aria-label="Tools"
+                        >
+                          <ToolsGridIcon />
+                        </button>
+                        <button
+                          className="music-close-btn"
+                          onClick={triggerCollapse}
+                          title="Minimize to capsule (Esc)"
+                          aria-label="Minimize"
+                        >
+                          <CloseIcon />
+                        </button>
                       </div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <MicroEq />
-                      <button
-                        className="agent-spotify-play-btn"
-                        onClick={handlePlayPause}
-                        title={isPlaying ? "Pause" : "Play"}
-                      >
-                        {isPlaying ? <ApplePauseIcon /> : <ApplePlayIcon />}
-                      </button>
+
+                    {/* Middle Section — Agent Task Details */}
+                    <div className="agent-panel-card">
+                      <div className="agent-task-title" title={cleanTaskTitle}>
+                        {cleanTaskTitle}
+                      </div>
+                      <div className="agent-task-meta">
+                        <div className="agent-active-action">
+                          {activeAgent.status === "completed" ? (
+                            <AgentStatusGlyph status="completed" size={13} />
+                          ) : (
+                            <span
+                              className={`agent-tool-dot ${activeAgent.status === "waiting"
+                                  ? "is-waiting"
+                                  : activeAgent.status === "failed"
+                                    ? "is-failed"
+                                    : "is-running"
+                                }`}
+                            />
+                          )}
+                          <span className="agent-activity-desc">
+                            {activeAgent.status === "completed"
+                              ? "Task Complete"
+                              : activeAgent.status === "waiting"
+                                ? "Waiting for user input"
+                                : activeAgent.status === "failed"
+                                  ? "Task encountered error"
+                                  : currentToolText}
+                          </span>
+                        </div>
+                        <span className={`agent-status-badge is-${activeAgent.status}`}>
+                          {activeAgent.status === "completed"
+                            ? "Complete"
+                            : activeAgent.status === "waiting"
+                              ? "Waiting"
+                              : "Running"}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </motion.div>
+
+                    {/* Bottom Section — Compact Media Player */}
+                    {hasActiveMedia && media && (
+                      <div
+                        className="agent-spotify-strip"
+                        onClick={handleSwapPrimary}
+                        title={`Click to switch to full ${getMediaPlatformName(media.source, isYouTubeMedia)} player`}
+                      >
+                        <div className="agent-spotify-left">
+                          <MediaSourceBadge source={isYouTubeMedia ? "youtube" : media.source} size={20} />
+                          <div className="agent-spotify-text">
+                            <span className="agent-spotify-title" title={media.title}>
+                              {media.title}
+                            </span>
+                            <span className="agent-spotify-artist" title={media.artist}>
+                              {media.artist || "Unknown Artist"}
+                            </span>
+                          </div>
+                        </div>
+                        <div
+                          className="agent-spotify-right"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MicroEq isPlaying={media.status === "playing"} />
+                          <button
+                            className="agent-spotify-play-btn"
+                            onClick={handlePlayPause}
+                            title={isPlaying ? "Pause" : "Play"}
+                            aria-label={isPlaying ? "Pause" : "Play"}
+                          >
+                            {isPlaying ? <ApplePauseIcon /> : <ApplePlayIcon />}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </motion.div>
+                );
+              })()
             ) : isMusicActive && media ? (
               /* =================================================================
                  EXPANDED MUSIC PLAYER (Screenshot 2 exact replica)
@@ -2779,8 +3135,8 @@ export function App() {
                       {isSwitching ? "" : media.title}
                     </span>
                     {media.artist &&
-                    media.artist !== "Unknown Artist" &&
-                    !media.artist.toLowerCase().includes("youtube") ? (
+                      media.artist !== "Unknown Artist" &&
+                      !media.artist.toLowerCase().includes("youtube") ? (
                       <span className="expanded-music-artist" title={media.artist}>
                         {isSwitching ? "" : media.artist}
                       </span>
@@ -2802,31 +3158,26 @@ export function App() {
                       )}
                     </AnimatePresence>
 
-                    {/* Agent Activity Shortcut (When Agent Active) */}
-                    {isAgentWorking && (
+                    {/* Agent Activity Swap Badge (When Agent Active) */}
+                    {isAgentWorking && activeAgent && (
                       <button
-                        className="music-agent-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          switchTab("agent");
-                        }}
-                        title={`Agent active: ${activeAgent?.agentName} (${activeAgent?.status}) — View`}
-                        aria-label="Agent"
-                        style={{
-                          width: 22,
-                          height: 22,
-                          borderRadius: "50%",
-                          background: "rgba(255, 255, 255, 0.08)",
-                          border: "1px solid rgba(255, 255, 255, 0.12)",
-                          color: "rgba(255, 255, 255, 0.72)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          cursor: "pointer",
-                          padding: 0
-                        }}
+                        className="music-agent-swap-btn"
+                        onClick={handleSwapPrimary}
+                        title={`Agent active: ${activeAgent.agentName} (${activeAgent.activeTool || activeAgent.statusText}) — Click to swap to Agent view (⇄)`}
+                        aria-label="Swap to Agent View"
                       >
-                        <AgentBrandIcon agentId={activeAgent?.agentId} size={14} />
+                        <AgentBrandIcon agentId={activeAgent.agentId} size={14} />
+                        <span className="music-agent-swap-label">
+                          {activeAgent.activeTool || activeAgent.agentName}
+                        </span>
+                        {activeAgent.status === "completed" ? (
+                          <AgentStatusGlyph status="completed" size={12} />
+                        ) : activeAgent.status === "waiting" ? (
+                          <span className="agent-status-dot is-waiting" />
+                        ) : (
+                          <span className="agent-status-dot is-running" />
+                        )}
+                        <SwapArrowsIcon size={11} />
                       </button>
                     )}
 
@@ -2865,7 +3216,7 @@ export function App() {
                   </div>
                 </div>
 
-                {/* Middle Row: [0:48] [Scrubber Track with Light Cyan Fill] [-2:08] */}
+                {/* Middle Row: Scrubber Track with Remaining Time */}
                 <div className="expanded-music-scrubber-row" onPointerDown={(e) => e.stopPropagation()}>
                   <span className="scrubber-time-label">
                     {formatTime(currentPositionMs, isLongMedia)}
@@ -2994,19 +3345,20 @@ export function App() {
                     <span className="quick-icon-svg"><ScreenTimeSvg /></span>
                   </motion.button>
 
-                  {/* Focus Mode */}
+                  {/* Settings Button */}
                   <motion.button
-                    id="qi-focus"
-                    className={`quick-icon-btn ${isFocusOn ? "active focus-active" : ""}`}
-                    title={isFocusOn ? "Focus Mode: Active (Click to turn off)" : "Turn on Focus Mode"}
-                    aria-label="Focus Mode"
-                    onClick={() => setIsFocusOn((prev) => !prev)}
+                    id="qi-settings"
+                    className="quick-icon-btn"
+                    title="Settings: Personalize your Islet experience"
+                    aria-label="Settings"
+                    onClick={() => {
+                      switchTab("settings");
+                    }}
                     whileHover={{ scale: 1.08 }}
                     whileTap={{ scale: 0.92 }}
                     transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
                   >
-                    <span className="quick-icon-svg"><FocusSvg /></span>
-                    {isFocusOn && <span className="focus-indicator-dot" />}
+                    <span className="quick-icon-svg"><SettingsGearSvg /></span>
                   </motion.button>
 
                   {/* Agent Activity Indicator & Tab Switch */}
@@ -3040,13 +3392,13 @@ export function App() {
                     <motion.button
                       className="quickbar-media-return-btn"
                       onClick={() => switchTab("music")}
-                      title={`Return to: ${media.title} (${media.source === "spotify" ? "Spotify" : media.source === "youtube" ? "YouTube" : media.source === "apple-music" ? "Apple Music" : "Music"})`}
+                      title={`Return to: ${media.title} (${getMediaPlatformName(media.source, isYouTubeMedia)})`}
                       aria-label="Return to Music Player"
                       whileHover={{ scale: 1.10 }}
                       whileTap={{ scale: 0.92 }}
                       transition={{ type: "spring", stiffness: 450, damping: 24, mass: 0.5 }}
                     >
-                      <MediaSourceBadge source={media.source} size={20} />
+                      <MediaSourceBadge source={isYouTubeMedia ? "youtube" : media.source} size={20} />
                     </motion.button>
                   )}
                   <button
@@ -3109,7 +3461,7 @@ export function App() {
                ================================================================= */
             <motion.div
               key="collapsed-dual"
-              className="capsule-dual-bar"
+              className={`capsule-dual-bar is-primary-${primaryMode}`}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0, transition: { duration: 0.06, delay: 0 } }}
@@ -3118,183 +3470,232 @@ export function App() {
                 opacity: { duration: 0.24, delay: 0.10, ease: [0.32, 0.72, 0, 1] }
               }}
               onClick={() => {
+                const targetH = primaryMode === "agent" ? 184 : 152;
                 setActiveTab(primaryMode === "agent" ? "agent" : "music");
-                triggerExpand(primaryMode === "agent" ? 204 : 152);
+                triggerExpand(targetH);
               }}
               title={
-                primaryMode === "agent"
-                  ? `Agent primary: ${activeAgent?.activeTool || activeAgent?.agentName} • Click swap (⇄) for Spotify`
-                  : `Spotify primary: ${media?.title} • Click swap (⇄) for Agent`
+                (() => {
+                  const srcName = getMediaPlatformName(media?.source, isYouTubeMedia);
+                  return primaryMode === "agent"
+                    ? `Agent: ${activeAgent?.activeTool || activeAgent?.agentName} • ${srcName}: ${media?.title} — Click to expand, ⇄ to swap`
+                    : `${srcName}: ${media?.title} • Agent: ${activeAgent?.agentName} — Click to expand, ⇄ to swap`;
+                })()
               }
             >
-              {primaryMode === "agent" ? (
-                <>
-                  {/* Primary Zone: Agent Activity */}
-                  <div className="dual-primary-zone">
-                    <AgentBrandIcon agentId={activeAgent?.agentId} size={18} />
-                    <span className={`dual-agent-text is-${activeAgent?.status}`} title={activeAgent?.activeTool || activeAgent?.activityText || activeAgent?.agentName}>
-                      {activeAgent?.activeTool || (activeAgent?.status === "completed" ? "Completed" : activeAgent?.status === "waiting" ? "Waiting for input" : "Working")}
+              {/* Music Section (Left): Album Thumbnail, Title & Artist, Green Equalizer */}
+              <div
+                className={`dual-music-zone ${primaryMode === "spotify" ? "is-primary" : "is-secondary"}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveTab("music");
+                  triggerExpand(152);
+                }}
+                title={(() => {
+                  const srcName = getMediaPlatformName(media?.source, isYouTubeMedia);
+                  return `${srcName}: ${media?.title} - ${media?.artist || "Unknown Artist"}`;
+                })()}
+              >
+                <AlbumArtwork
+                  src={media?.artworkUrl}
+                  title={media?.title}
+                  artist={media?.artist}
+                  source={isYouTubeMedia ? "youtube" : media?.source}
+                  className="capsule-art dual-capsule-art"
+                  size={24}
+                />
+                <div className="dual-music-text">
+                  <span className="dual-music-title">
+                    {media?.title}
+                  </span>
+                  {media?.artist && (
+                    <span className="dual-music-artist">
+                      {media.artist}
                     </span>
-                    {activeAgent?.status === "running" && (
-                      <span
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: "50%",
-                          background: "#ea580c",
-                          boxShadow: "0 0 5px #ea580c",
-                          marginLeft: 2,
-                          flexShrink: 0
-                        }}
-                      />
-                    )}
-                    <span className="dual-agent-timer">
-                      {formatElapsed(activeAgent?.startedAt)}
-                    </span>
-                  </div>
+                  )}
+                </div>
+                <div className="dual-music-eq-wrap">
+                  <MicroEq isPlaying={media?.status === "playing"} />
+                </div>
+              </div>
 
-                  {/* Swap Button (⇄): exchanges primary & secondary focus */}
-                  <button
-                    className="dual-swap-btn"
-                    onClick={handleSwapPrimary}
-                    title="Swap primary focus to Spotify (music continues uninterrupted)"
-                    aria-label="Swap Primary Activity"
-                  >
-                    <SwapArrowsIcon size={12} />
-                  </button>
+              {/* Activity Swap Control (Center ⇄) */}
+              <button
+                className="dual-swap-btn"
+                onClick={handleSwapPrimary}
+                title={
+                  primaryMode === "agent"
+                    ? `Swap primary focus to ${getMediaPlatformName(media?.source, isYouTubeMedia)} (⇄)`
+                    : "Swap primary focus to AI Agent (⇄)"
+                }
+                aria-label="Swap Primary Activity"
+              >
+                <SwapArrowsIcon size={12} />
+              </button>
 
-                  {/* Secondary Zone: Spotify Micro Badge + Equalizer */}
-                  <div
-                    className="dual-secondary-zone"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveTab("music");
-                      triggerExpand(152);
-                    }}
-                    title={`Playing: ${media?.title}`}
-                  >
-                    <div className="dual-secondary-spotify">
-                      <MediaSourceBadge source={media?.source} size={16} />
-                      <MicroEq />
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  {/* Primary Zone: Spotify Track & Artist */}
-                  <div className="dual-primary-zone">
-                    <AlbumArtwork
-                      src={media?.artworkUrl}
-                      title={media?.title}
-                      artist={media?.artist}
-                      source={media?.source}
-                      className="capsule-art"
-                      size={28}
-                    />
-                    <div className="dual-media-info">
-                      <span className="dual-media-title" title={media?.title}>
-                        {isSwitching ? "" : media?.title}
-                      </span>
-                      <span className="dual-media-artist" title={media?.artist}>
-                        {isSwitching ? "" : media?.artist || "Unknown Artist"}
-                      </span>
-                    </div>
-                    <div style={{ marginLeft: 4, display: "flex", alignItems: "center" }}>
-                      <MicroEq />
-                    </div>
-                  </div>
+              {/* Agent Section (Right): Logo, Current Task / File, Indicator, Timer */}
+              <div
+                className={`dual-agent-zone ${primaryMode === "agent" ? "is-primary" : "is-secondary"}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveTab("agent");
+                  triggerExpand(184);
+                }}
+                title={`Agent: ${activeAgent?.agentName} (${activeAgent?.activeTool || activeAgent?.statusText})`}
+              >
+                <AgentBrandIcon agentId={activeAgent?.agentId} size={16} />
+                <span className={`dual-agent-label is-${activeAgent?.status}`}>
+                  {(settings.compactTaskDescription ?? true)
+                    ? (activeAgent?.activeTool || activeAgent?.statusText || activeAgent?.agentName)
+                    : activeAgent?.agentName}
+                </span>
 
-                  {/* Swap Button (⇄): exchanges primary & secondary focus */}
-                  <button
-                    className="dual-swap-btn"
-                    onClick={handleSwapPrimary}
-                    title="Swap primary focus to Agent Activity"
-                    aria-label="Swap Primary Activity"
-                  >
-                    <SwapArrowsIcon size={12} />
-                  </button>
+                <div className="dual-agent-indicator-wrap">
+                  {activeAgent?.status === "completed" ? (
+                    <AgentStatusGlyph status="completed" size={13} />
+                  ) : activeAgent?.status === "waiting" ? (
+                    <span className="agent-status-dot is-waiting" />
+                  ) : activeAgent?.status === "failed" ? (
+                    <span className="agent-status-dot is-failed" />
+                  ) : (
+                    <span className="agent-status-dot is-running" />
+                  )}
+                </div>
 
-                  {/* Secondary Zone: Agent Icon & Status */}
-                  <div
-                    className="dual-secondary-zone"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveTab("agent");
-                      triggerExpand(204);
-                    }}
-                    title={`Agent: ${activeAgent?.agentName} (${activeAgent?.status})`}
-                  >
-                    <AgentBrandIcon agentId={activeAgent?.agentId} size={16} />
-                    {activeAgent?.status === "completed" ? (
-                      <AgentStatusGlyph status="completed" size={14} />
-                    ) : activeAgent?.status === "waiting" ? (
-                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#ffbd2e" }} />
-                    ) : (
-                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#ea580c", boxShadow: "0 0 5px #ea580c" }} />
-                    )}
-                  </div>
-                </>
-              )}
+                <span className="dual-agent-timer">
+                  {formatElapsed(activeAgent?.startedAt)}
+                </span>
+              </div>
             </motion.div>
-          ) : isAgentWorking ? (
+          ) : isAgentWorking && hasMultipleTasks ? (
             /* =================================================================
-               COLLAPSED AGENT CAPSULE (Single Activity, exact media_1792765016206 replica)
+               COLLAPSED MULTI-TASK AGENT LIST (Screenshot 1 replica)
                ================================================================= */
             <motion.div
-              key="collapsed-agent"
-              className="capsule-agent-bar"
+              key="collapsed-agent-multi"
+              className="agent-multi-list"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              exit={{ opacity: 0, transition: { duration: 0.06, delay: 0 } }}
-              whileHover={{ scale: 1.015 }}
+              exit={{ opacity: 0, transition: { duration: 0.08 } }}
               transition={{
-                opacity: { duration: 0.24, delay: 0.10, ease: [0.32, 0.72, 0, 1] }
+                opacity: { duration: 0.22, delay: 0.05, ease: [0.32, 0.72, 0, 1] }
+              }}
+              onClick={() => {
+                setActiveTab("agent");
+                triggerExpand(184);
+              }}
+              title="Multiple AI agent tasks active — Click to expand"
+            >
+              {activeAgentList.map((agent) => {
+                const projName = getAgentProjectName(agent);
+                const promptText = getAgentPrompt(agent);
+                const statusLabel = getAgentStatusLabel(agent);
+                const isRunning = agent.status === "running" || (!agent.status && !agent.completedAt);
+                const hasValidProgress =
+                  typeof agent.progress === "number" &&
+                  agent.progress >= 0 &&
+                  agent.progress <= 100;
+
+                return (
+                  <div key={agent.id} className="agent-multi-row">
+                    <div className="agent-multi-left">
+                      <AgentRowIndicator agent={agent} />
+                      <span className="agent-multi-project" title={projName}>
+                        {projName}
+                      </span>
+                    </div>
+
+                    {promptText && (
+                      <span className="agent-multi-prompt" title={promptText}>
+                        “{promptText}”
+                      </span>
+                    )}
+
+                    <div className="agent-multi-right">
+                      <span className={`agent-multi-status is-${agent.status}`}>
+                        {statusLabel}
+                        {isRunning && <AnimatedLoadingDots />}
+                      </span>
+                      <span className="agent-multi-sep">|</span>
+                      <span className="agent-multi-elapsed">
+                        {formatElapsedShort(agent.startedAt)}
+                      </span>
+                      {hasValidProgress && (
+                        <span className="agent-multi-progress">
+                          · {Math.round(agent.progress!)}%
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </motion.div>
+          ) : isAgentWorking && activeAgent ? (
+            /* =================================================================
+               COLLAPSED SINGLE-TASK AGENT PILL (Screenshot 2 replica)
+               ================================================================= */
+            <motion.div
+              key="collapsed-agent-single"
+              className={`agent-pill-single ${getAgentPrompt(activeAgent) ? "has-prompt" : "no-prompt"}`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0, transition: { duration: 0.08 } }}
+              whileHover={{ scale: 1.01 }}
+              transition={{
+                opacity: { duration: 0.22, delay: 0.05, ease: [0.32, 0.72, 0, 1] }
               }}
               onClick={() => {
                 setActiveTab("agent");
                 triggerExpand(160);
               }}
-              title={`${activeAgent?.agentName}: ${activeAgent?.activeTool || activeAgent?.statusText} — Hover to expand`}
+              title={`${getAgentProjectName(activeAgent)}${getAgentPrompt(activeAgent) ? `: “${getAgentPrompt(activeAgent)}”` : ""} — Click to expand`}
             >
-              <div className="agent-bar-left">
-                <AgentBrandIcon agentId={activeAgent?.agentId} size={18} />
-                <span className={`agent-bar-text is-${activeAgent?.status}`} title={activeAgent?.activeTool || activeAgent?.activityText || activeAgent?.agentName}>
-                  {activeAgent?.activeTool || (activeAgent?.status === "completed" ? "Completed" : activeAgent?.status === "waiting" ? "Waiting for input" : "Working")}
+              <div className="agent-pill-left">
+                {/* Platform logo only if reliably identified */}
+                <span className="agent-pill-brand-wrap">
+                  <AgentBrandIcon agentId={activeAgent.agentId} size={15} />
+                </span>
+                <span className="agent-pill-project" title={getAgentProjectName(activeAgent)}>
+                  {getAgentProjectName(activeAgent)}
                 </span>
               </div>
 
-              <div className="agent-bar-right">
-                {activeAgent?.status === "completed" ? (
-                  <AgentStatusGlyph status="completed" size={16} />
-                ) : activeAgent?.status === "waiting" ? (
-                  <>
-                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#ffbd2e", boxShadow: "0 0 5px #ffbd2e", marginRight: 2 }} />
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "#ffbd2e" }}>WAITING</span>
-                  </>
-                ) : activeAgent?.status === "failed" ? (
-                  <>
-                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#ff453a", boxShadow: "0 0 5px #ff453a", marginRight: 2 }} />
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "#ff453a" }}>FAILED</span>
-                  </>
+              {getAgentPrompt(activeAgent) && (
+                <span className="agent-pill-prompt" title={getAgentPrompt(activeAgent)}>
+                  “{getAgentPrompt(activeAgent)}”
+                </span>
+              )}
+
+              <div className="agent-pill-right">
+                {activeAgent.status === "completed" ? (
+                  <span className="agent-pill-status is-completed">
+                    Done
+                  </span>
                 ) : (
-                  <>
-                    <span
-                      style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: "50%",
-                        background: "#ea580c",
-                        boxShadow: "0 0 5px #ea580c"
-                      }}
-                    />
-                    <span className="agent-bar-timer is-running">
-                      {formatElapsed(activeAgent?.startedAt)}
-                    </span>
-                  </>
+                  <span className={`agent-pill-status is-${activeAgent.status}`}>
+                    {getAgentStatusLabel(activeAgent)}
+                    {(activeAgent.status === "running" || !activeAgent.status) && (
+                      <AnimatedLoadingDots />
+                    )}
+                  </span>
                 )}
+
+                <span className="agent-pill-sep">|</span>
+
+                <span className="agent-pill-elapsed">
+                  {formatElapsedShort(activeAgent.startedAt)}
+                </span>
+
+                {typeof activeAgent.progress === "number" &&
+                  activeAgent.progress >= 0 &&
+                  activeAgent.progress <= 100 && (
+                    <span className="agent-pill-progress">
+                      · {Math.round(activeAgent.progress)}%
+                    </span>
+                  )}
               </div>
             </motion.div>
-          ) : hasActiveMedia && media ? (
+          ) : showSpotifyPill && media ? (
             /* =================================================================
                COLLAPSED MUSIC CAPSULE (Screenshot 1 replica)
                ================================================================= */
@@ -3346,21 +3747,13 @@ export function App() {
                 )}
               </div>
 
-              {/* Far Right: Circular App Source Badge (Spotify, Apple Music — omitted for YouTube) */}
-              {!isYouTubeMedia && (
-                <div
-                  className="capsule-source-badge"
-                  title={
-                    media.source === "spotify"
-                      ? "Spotify"
-                      : media.source === "apple-music"
-                      ? "Apple Music"
-                      : "Media"
-                  }
-                >
-                  <MediaSourceBadge source={media.source} size={24} />
-                </div>
-              )}
+              {/* Far Right: Circular App Source Badge (Spotify, YouTube, Apple Music, VLC, Browser, Generic) */}
+              <div
+                className="capsule-source-badge"
+                title={getMediaPlatformName(media.source, isYouTubeMedia)}
+              >
+                <MediaSourceBadge source={isYouTubeMedia ? "youtube" : media.source} size={24} />
+              </div>
             </motion.div>
           ) : (
             /* =================================================================

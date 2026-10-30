@@ -290,7 +290,8 @@ class AntigravityAdapter implements AgentAdapter {
             const reqBody = userReqMatch ? userReqMatch[1] : text;
             const headingMatch = reqBody.match(/^\s*#+\s+([^\r\n]+)/m);
             if (headingMatch && headingMatch[1]) {
-              const cleanH = headingMatch[1].replace(/[*_`#]/g, "").trim();
+              let cleanH = headingMatch[1].replace(/[*_`#]/g, "").trim();
+              cleanH = cleanH.replace(/^Islet\s*[\u2014\u2013\-:]\s*/i, "").trim();
               if (cleanH.length > 2 && cleanH.length <= 80 && !cleanH.includes("<")) {
                 explicitTitle = cleanH;
               }
@@ -525,7 +526,8 @@ class ClaudeCodeAdapter implements AgentAdapter {
 
             const headerMatch = userText.match(/^\s*#+\s+([^\r\n]+)/m);
             if (headerMatch && headerMatch[1]) {
-              const cleanH = headerMatch[1].replace(/[*_`#]/g, "").trim();
+              let cleanH = headerMatch[1].replace(/[*_`#]/g, "").trim();
+              cleanH = cleanH.replace(/^Islet\s*[\u2014\u2013\-:]\s*/i, "").trim();
               if (cleanH.length > 2 && cleanH.length <= 80 && !cleanH.includes("<")) {
                 explicitTitle = cleanH;
               }

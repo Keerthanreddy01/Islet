@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" width="128" alt="Islet Logo" />
+  <img src="../assets/logo.png" width="128" alt="Islet Logo" />
 </p>
 
 <h1 align="center">Islet</h1>
@@ -10,12 +10,13 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Keerthanreddy01/Islet/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Keerthanreddy01/Islet/ci.yml?branch=main&style=flat-square&logo=github&label=CI" alt="CI Status" /></a>
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-blue?style=flat-square&logo=windows" alt="Windows" />
   <img src="https://img.shields.io/badge/Electron-33-47848F?style=flat-square&logo=electron" alt="Electron" />
   <img src="https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react" alt="React" />
   <img src="https://img.shields.io/badge/TypeScript-5.6-3178C6?style=flat-square&logo=typescript" alt="TypeScript" />
-  <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License" />
-  <img src="https://img.shields.io/badge/PRs-Welcome-brightgreen?style=flat-square" alt="PRs Welcome" />
+  <a href="../LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License: MIT" /></a>
+  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-Welcome-brightgreen?style=flat-square" alt="PRs Welcome" /></a>
 </p>
 
 ---
@@ -32,7 +33,7 @@ Whether you're listening to Spotify, monitoring a long-running coding task in Go
 
 ### 🎵 Dynamic Media Hub & Now-Playing
 - **Universal Synchronization**: Real-time media detection via native Windows Media Session (`GSMTC`) supporting **Spotify**, **YouTube**, **Apple Music**, **Brave**, **Chrome**, **VLC**, and other players.
-- **High-Res Artwork Resolver**: Automatic resolution of clean, high-resolution album artwork via Apple iTunes / Music APIs with smart caching.
+- **High-Res Artwork Resolver**: Automatic resolution of clean, high-resolution album artwork via Apple iTunes / Music APIs with smart local caching.
 - **Interactive Controls**: Play/pause, previous/next, live progress scrubbing, and volume adjustment.
 - **Equalizer Animations**: Apple-inspired micro equalizer animations for active playback.
 
@@ -62,39 +63,45 @@ Whether you're listening to Spotify, monitoring a long-running coding task in Go
 ## 🚀 Getting Started
 
 ### Prerequisites
-- **Windows 10 or Windows 11** (64-bit)
-- **Node.js** (v18.0.0 or higher recommended)
+- **Windows 10 (version 1903+) or Windows 11** (64-bit)
+- **Node.js** (v18.0.0 or higher recommended, LTS preferred)
 - **npm** (v9 or higher)
+- **PowerShell** 5.1+ (included by default in Windows 10 & 11)
 
-### Installation & Development
+### Installation & Development Setup
 
 1. **Clone the repository:**
-   ```bash
+   ```powershell
    git clone https://github.com/Keerthanreddy01/Islet.git
    cd Islet
    ```
 
 2. **Install dependencies:**
-   ```bash
+   ```powershell
    npm install
    ```
 
 3. **Start in development mode:**
-   ```bash
+   ```powershell
    npm run dev
    ```
    *This starts the Vite development server and launches Electron with live hot-module replacement (HMR).*
 
-4. **Build for production:**
-   ```bash
+4. **Verify TypeScript compilation & linting:**
+   ```powershell
+   npm run lint
+   ```
+
+5. **Build for production:**
+   ```powershell
    npm run build
    ```
 
-5. **Generate the Windows installer:**
-   ```bash
+6. **Generate the Windows installer:**
+   ```powershell
    npm run dist
    ```
-   *The installer `.exe` will be generated inside the `dist/` directory.*
+   *The installer executable (`Islet Setup <version>.exe`) will be generated inside the `dist/` directory.*
 
 ---
 
@@ -107,6 +114,7 @@ Whether you're listening to Spotify, monitoring a long-running coding task in Go
 | **Toggle Island** | `Ctrl + Alt + Space` |
 | **Swap Dual Activity** | Click the swap button `⇄` |
 | **Switch Tabs** | Click Tools / Music icons in the header |
+| **System Tray** | Right-click the Islet tray icon for quick controls, autostart toggle, and quit |
 
 ---
 
@@ -114,24 +122,67 @@ Whether you're listening to Spotify, monitoring a long-running coding task in Go
 
 ```
 Islet/
+├── .github/
+│   ├── ISSUE_TEMPLATE/      # Bug report and feature request forms
+│   ├── workflows/ci.yml     # Automated GitHub Actions CI workflow
+│   ├── dependabot.yml       # Automated dependency monitoring
+│   └── PULL_REQUEST_TEMPLATE.md
 ├── assets/                  # Logos, icons, and artwork
+├── build/                   # NSIS custom installer configuration & icons
+├── docs/                    # Project documentation
+│   ├── README.md            # Primary repository documentation
+│   ├── CHANGELOG.md         # Release history and updates
+│   ├── CODE_OF_CONDUCT.md   # Contributor Covenant Code of Conduct
+│   ├── CONTRIBUTING.md      # Contribution guidelines & PR workflow
+│   └── SECURITY.md          # Security and vulnerability disclosure policy
 ├── electron/
 │   ├── main.ts              # Electron lifecycle, window creation & positioning
 │   ├── media-service.ts     # Windows GSMTC media worker & session listener
+│   ├── media-worker.ps1     # Native Windows Runtime media transport background bridge
 │   ├── agent-service.ts     # Real-time Antigravity & Claude Code transcript adapter
 │   ├── screentime-service.ts# Windows screen time statistics provider
+│   ├── screentime-worker.ps1# Windows screen time worker
+│   ├── preload.cts          # Secure IPC context bridge
 │   └── ipc.ts               # Type-safe IPC interfaces and data models
+├── resources/               # Installer images and resources
+│   └── installerimage.png
+├── scripts/                 # Build and utility scripts
+│   ├── clean-binaries.cjs   # Distribution artifact optimizer
+│   └── make-ico.ps1         # Windows multi-resolution icon generator
 ├── src/
 │   ├── App.tsx              # Main Dynamic Island UI, state machines & tabs
 │   ├── ErrorBoundary.tsx    # Crash resilience & fault recovery
+│   ├── SettingsPanel.tsx    # Settings & configuration panel
 │   ├── styles.css           # Curated dark-mode design system & animations
+│   ├── vite-env.d.ts        # Vite environment types
 │   └── main.tsx             # React entry point
-└── package.json
+├── .env.example             # Safe environment variable configuration template
+├── .gitignore               # Git ignore rules
+├── index.html               # Main HTML entry
+├── LICENSE                  # MIT License
+├── package.json             # Scripts and dependencies
+├── package-lock.json        # Lockfile
+├── postcss.config.js        # PostCSS configuration
+├── tailwind.config.js       # Tailwind CSS configuration
+├── tsconfig.electron.json   # TypeScript config for Electron process
+├── tsconfig.json            # TypeScript config for React renderer
+└── vite.config.ts           # Vite build configuration
 ```
 
 - **Frontend**: [React 18](https://react.dev/), [TypeScript](https://www.typescriptlang.org/), [Framer Motion](https://www.framer.com/motion/)
-- **Desktop Engine**: [Electron](https://www.electronjs.org/), [Vite](https://vitejs.dev/)
-- **Native OS Bridge**: PowerShell background workers leveraging Windows Runtime `GlobalSystemMediaTransportControls`
+- **Desktop Engine**: [Electron 33](https://www.electronjs.org/), [Vite](https://vitejs.dev/)
+- **Native Windows OS Bridge**: PowerShell background workers leveraging Windows Runtime `GlobalSystemMediaTransportControls` (`GSMTC`)
+
+---
+
+## 🗺️ Roadmap
+
+- [x] **v0.1.0**: Core Dynamic Island capsule, hover expansion, GSMTC media sync, AI agent monitor, timer ruler dial, screen time widget, NSIS installer.
+- [ ] **Custom Hotkey Rebinding**: Allow users to customize `Ctrl+Alt+Space` directly in the UI.
+- [ ] **Multi-Monitor Display Selector**: Choose which monitor the island anchors to.
+- [ ] **Additional AI Agent Adapters**: Support for additional local and remote developer tools.
+- [ ] **Battery & Hardware Glance**: Ambient power, CPU/RAM glance for laptops.
+- [ ] **Code Signing**: Windows Authenticode code-signing configuration for official releases.
 
 ---
 
@@ -139,22 +190,25 @@ Islet/
 
 Islet is **100% open-source**! We believe in building delightful, distraction-free desktop software, and community contributions are warmly welcomed.
 
+Please review our [Contributing Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) before submitting pull requests.
+
 ### How You Can Help
-- 🐛 **Report Bugs**: Encounter an issue? [Open an issue](https://github.com/Keerthanreddy01/Islet/issues) with reproduction steps.
-- 💡 **Suggest Features**: Have ideas for new tools, player integrations, or agent adapters? Let's discuss them!
-- 🎨 **Improve Aesthetics**: Enhance animations, sound effects, or responsive adaptations.
-- 💻 **Submit Pull Requests**:
-  1. Fork the repository
-  2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-  3. Commit your changes (`git commit -m 'feat: Add amazing feature'`)
-  4. Push to your branch (`git push origin feature/amazing-feature`)
-  5. Open a Pull Request
+- 🐛 **Report Bugs**: Encounter an issue? [Open a bug report](https://github.com/Keerthanreddy01/Islet/issues/new?template=bug_report.yml) with reproduction steps.
+- 💡 **Suggest Features**: Have ideas for new tools or widget modules? [Open a feature request](https://github.com/Keerthanreddy01/Islet/issues/new?template=feature_request.yml).
+- 🎨 **Improve Aesthetics**: Enhance micro-animations, layout responsiveness, and polish.
+- 💻 **Submit Pull Requests**: Check out open issues, fork the repo, create a feature branch, and submit a PR!
+
+---
+
+## 🔒 Security
+
+For details on reporting security vulnerabilities, please refer to our [Security Policy](SECURITY.md).
 
 ---
 
 ## 📄 License
 
-This project is open-source software licensed under the [MIT License](LICENSE).
+This project is licensed under the [MIT License](../LICENSE) © 2026 Keerthan Reddy.
 
 <p align="center">
   Crafted with care by <a href="https://github.com/Keerthanreddy01">Keerthan Reddy</a> and contributors.

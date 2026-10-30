@@ -76,6 +76,7 @@ let currentAnchor: WindowPosition | null = null;
 let settings: Settings;
 let registeredHotkey: string | null = null;
 let rendererReady = false;
+let lastIgnoreMouseEvents: boolean | null = null;
 
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) {
@@ -85,7 +86,9 @@ if (!singleInstance) {
 const defaultSettings: Settings = {
   hotkey: "Ctrl+Alt+Space",
   monitor: "active",
+  theme: "midnight",
   accentColor: "#0a84ff",
+  islandOpacity: 1.0,
   animations: true,
   expandOnHover: false,
   notchMode: true,
@@ -93,6 +96,11 @@ const defaultSettings: Settings = {
   iconSize: 64,
   closeOnBlur: true,
   startWithWindows: true,
+  launchMinimized: false,
+  showAgentIndicators: true,
+  compactTaskDescription: true,
+  completedIndicatorDuration: "brief",
+  showSpotifyIndicator: true,
   positions: {}
 };
 
@@ -199,7 +207,8 @@ const persistPosition = (position: WindowPosition) => {
 
 const resizeToExpanded = (customHeight?: number) => {
   if (!mainWindow) return;
-  const targetH = customHeight && customHeight > EXPANDED_WIN_HEIGHT ? customHeight + 10 : EXPANDED_WIN_HEIGHT;
+  lastIgnoreMouseEvents = null;
+  const targetH = customHeight ? Math.max(COLLAPSED_WIN_HEIGHT, Math.min(480, customHeight + 4)) : EXPANDED_WIN_HEIGHT;
   const display = getActiveDisplay();
   const pos = defaultTopCenterPosition(display);
   currentAnchor = pos;
@@ -212,17 +221,19 @@ const resizeToExpanded = (customHeight?: number) => {
   mainWindow.showInactive();
 };
 
-const resizeToCollapsed = () => {
+const resizeToCollapsed = (customCollapsedH?: number) => {
   if (!mainWindow) return;
+  lastIgnoreMouseEvents = null;
+  const targetH = customCollapsedH ? Math.max(COLLAPSED_WIN_HEIGHT, Math.min(220, customCollapsedH)) : COLLAPSED_WIN_HEIGHT;
   const display = currentAnchor ? displayForPosition(currentAnchor) : getActiveDisplay();
   const anchor = currentAnchor ?? defaultTopCenterPosition(display);
-  const clamped = clampWindowPosition(anchor, WIN_WIDTH, COLLAPSED_WIN_HEIGHT, display);
+  const clamped = clampWindowPosition(anchor, WIN_WIDTH, targetH, display);
   currentAnchor = clamped;
   mainWindow.setBounds({
     x: clamped.x,
     y: clamped.y,
     width: WIN_WIDTH,
-    height: COLLAPSED_WIN_HEIGHT
+    height: targetH
   });
   persistPosition(clamped);
   mainWindow.showInactive();
@@ -338,9 +349,49 @@ const registerGlobalHotkey = () => {
   return false;
 };
 
+const tryRegisterNewHotkey = (
+  newHotkey: string
+): { success: boolean; hotkey: string; error?: string } => {
+  const trimmed = newHotkey.trim();
+  if (!trimmed) {
+    return { success: false, hotkey: settings.hotkey, error: "Shortcut cannot be empty." };
+  }
+  if (trimmed === settings.hotkey && registeredHotkey === trimmed) {
+    return { success: true, hotkey: trimmed };
+  }
+
+  const previousHotkey = registeredHotkey;
+  try {
+    const success = globalShortcut.register(trimmed, handleGlobalHotkey);
+    if (!success) {
+      log(`[hotkey] Failed to register new shortcut: ${trimmed}`);
+      return {
+        success: false,
+        hotkey: settings.hotkey,
+        error: `Shortcut "${trimmed}" is reserved by Windows or another application.`
+      };
+    }
+
+    if (previousHotkey && previousHotkey !== trimmed) {
+      globalShortcut.unregister(previousHotkey);
+    }
+    registeredHotkey = trimmed;
+    settings.hotkey = trimmed;
+    saveSettings();
+    log(`[hotkey] Successfully updated global shortcut to: ${trimmed}`);
+    return { success: true, hotkey: trimmed };
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    log(`[hotkey ERROR] Exception registering shortcut: ${trimmed}`, err);
+    return {
+      success: false,
+      hotkey: settings.hotkey,
+      error: `Invalid shortcut combination: ${errMsg}`
+    };
+  }
+};
+
 const resolveLogoPath = (): string => {
-  const newLogoPath = "C:\\Users\\keert\\Desktop\\Islet\\logo.png";
-  if (fs.existsSync(newLogoPath)) return newLogoPath;
   const candidates = [
     path.join(process.cwd(), "logo.png"),
     path.join(__dirname, "../logo.png"),
@@ -446,6 +497,7 @@ const createWindow = () => {
     height: COLLAPSED_WIN_HEIGHT,
     icon: resolveLogoPath(),
     transparent: true,
+    backgroundColor: "#00000000",
     frame: false,
     resizable: false,
     movable: false,
@@ -463,6 +515,8 @@ const createWindow = () => {
 
   mainWindow.setAlwaysOnTop(true, "floating");
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  mainWindow.setIgnoreMouseEvents(true, { forward: true });
+  lastIgnoreMouseEvents = true;
 
   mainWindow.on("blur", () => {
     if (!hidden && settings.closeOnBlur && expanded) {
@@ -577,8 +631,17 @@ const registerWindowIpc = () => {
     return false;
   });
 
+  ipcMain.handle("window:set-collapsed-height", (_event, h: number) => {
+    if (!expanded && !hidden && mainWindow && !mainWindow.isDestroyed()) {
+      resizeToCollapsed(h);
+    }
+    return true;
+  });
+
   ipcMain.on("window:set-ignore-mouse-events", (_event, ignore: boolean, options?: { forward: boolean }) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (lastIgnoreMouseEvents === ignore) return;
+    lastIgnoreMouseEvents = ignore;
     try {
       mainWindow.setIgnoreMouseEvents(ignore, options);
     } catch (err) {
@@ -624,6 +687,20 @@ const registerIpc = () => {
   ipcMain.handle("window:set-tab", (_event, tab: Tab) => tab);
   ipcMain.handle("settings:get", () => ({ ...settings, startWithWindows: getStartupStatus() }));
   ipcMain.handle("settings:get-startup-status", getStartupStatus);
+  ipcMain.handle("settings:set-hotkey", (_event, hotkey: string) => {
+    return tryRegisterNewHotkey(hotkey);
+  });
+  ipcMain.handle("settings:restore-defaults", () => {
+    const prevPositions = settings.positions;
+    settings = {
+      ...defaultSettings,
+      positions: prevPositions,
+      startWithWindows: getStartupStatus()
+    };
+    registerGlobalHotkey();
+    saveSettings();
+    return { ...settings, startWithWindows: getStartupStatus() };
+  });
   ipcMain.handle("settings:update", (_event, patch: Partial<Settings>) => {
     settings = { ...settings, ...patch };
     if (patch.startWithWindows !== undefined) applyStartupSetting(patch.startWithWindows);

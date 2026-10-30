@@ -4,6 +4,9 @@ import { App } from "./App";
 import { ErrorBoundary } from "./ErrorBoundary";
 import "./styles.css";
 
+document.documentElement.classList.add("is-electron");
+document.body.classList.add("is-electron");
+
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ErrorBoundary>
@@ -11,4 +14,3 @@ createRoot(document.getElementById("root")!).render(
     </ErrorBoundary>
   </React.StrictMode>
 );
-
