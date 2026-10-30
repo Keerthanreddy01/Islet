@@ -30,7 +30,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.6.1",
     "concurrently": "^9.1.0",
-    "electron": "^33.2.1",
+    "electron": "^45.1.0",
     "electron-builder": "^25.1.8",
     "framer-motion": "^11.11.17",
     "postcss": "^8.5.31",

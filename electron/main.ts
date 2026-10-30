@@ -1,8 +1,8 @@
-import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, Tray } from "electron";
+import { app, BrowserWindow, clipboard, ClipboardItem, globalShortcut, ipcMain, Menu, nativeImage, protocol, screen, shell, Tray } from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type {
   CalendarEvent,
   CalendarWeek,
@@ -531,6 +531,62 @@ const createWindow = () => {
     mainWindow = null;
   });
 
+  // Secure external link and child window handling
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const parsedUrl = new URL(url);
+      if (parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:") {
+        void shell.openExternal(url);
+        log(`[Security] Opened external HTTP/HTTPS URL in default browser: ${url}`);
+      } else {
+        log(`[Security] Blocked window.open attempt with disallowed protocol: ${parsedUrl.protocol} (${url})`);
+      }
+    } catch (err) {
+      log(`[Security] Blocked invalid window.open URL: ${url}`, err);
+    }
+    return { action: "deny" };
+  });
+
+  const appHtmlUrl = pathToFileURL(path.resolve(__dirname, "../dist/index.html")).href.toLowerCase();
+
+  const isAllowedInternalUrl = (navUrl: string): boolean => {
+    try {
+      if (process.env.VITE_DEV_SERVER_URL) {
+        const devUrl = process.env.VITE_DEV_SERVER_URL.toLowerCase();
+        if (navUrl.toLowerCase().startsWith(devUrl)) return true;
+      }
+      const lowerNav = navUrl.toLowerCase();
+      return (
+        lowerNav === appHtmlUrl ||
+        lowerNav.startsWith(`${appHtmlUrl}#`) ||
+        lowerNav.startsWith(`${appHtmlUrl}?`)
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  mainWindow.webContents.on("will-navigate", (event, navigationUrl) => {
+    try {
+      if (isAllowedInternalUrl(navigationUrl)) {
+        return; // Permitted internal application navigation
+      }
+
+      event.preventDefault();
+
+      const parsedUrl = new URL(navigationUrl);
+      if (parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:") {
+        void shell.openExternal(navigationUrl);
+        log(`[Security] Delegated in-frame external navigation to default browser: ${navigationUrl}`);
+      } else {
+        log(`[Security] Blocked in-frame navigation to disallowed protocol: ${parsedUrl.protocol} (${navigationUrl})`);
+      }
+    } catch (err) {
+      event.preventDefault();
+      log(`[Security] Error handling will-navigate for ${navigationUrl}:`, err);
+    }
+  });
+
   mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
     log(
       `[Renderer ERROR] did-fail-load (code=${errorCode}, isMainFrame=${isMainFrame}): ${errorDescription} [${validatedURL}]`
@@ -775,10 +831,11 @@ const registerIpc = () => {
     if (index >= 0) placeholderTasks.splice(index, 1);
     return placeholderTasks;
   });
-  ipcMain.handle("tasks:capture-from-clipboard", () => {
+  ipcMain.handle("tasks:capture-from-clipboard", async () => {
     let text = "";
     try {
-      text = clipboard.readText().trim();
+      const raw = await clipboard.readText();
+      text = raw.trim();
     } catch {
       // fallback
     }
@@ -797,10 +854,11 @@ const registerIpc = () => {
     return task;
   });
 
-  ipcMain.handle("clipboard:list", () => {
+  ipcMain.handle("clipboard:list", async () => {
     let text = "";
     try {
-      text = clipboard.readText().trim();
+      const raw = await clipboard.readText();
+      text = raw.trim();
     } catch {
       // fallback
     }
@@ -877,7 +935,9 @@ const registerIpc = () => {
         if (filePath && fs.existsSync(filePath)) {
           const img = nativeImage.createFromPath(filePath);
           if (!img.isEmpty()) {
-            clipboard.writeImage(img);
+            const blob = new Blob([new Uint8Array(img.toPNG())], { type: "image/png" });
+            const item = new ClipboardItem({ "image/png": blob });
+            await clipboard.write([item]);
             log(`[shelf:copy-image] Copied image from path to OS clipboard: ${filePath}`);
             return true;
           }
@@ -885,7 +945,9 @@ const registerIpc = () => {
         if (dataUrl) {
           const img = nativeImage.createFromDataURL(dataUrl);
           if (!img.isEmpty()) {
-            clipboard.writeImage(img);
+            const blob = new Blob([new Uint8Array(img.toPNG())], { type: "image/png" });
+            const item = new ClipboardItem({ "image/png": blob });
+            await clipboard.write([item]);
             log("[shelf:copy-image] Copied image from dataUrl to OS clipboard");
             return true;
           }
