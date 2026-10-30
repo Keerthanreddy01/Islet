@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../assets/logo.png" width="128" alt="Islet Logo" />
+  <img src="assets/logo.png" width="128" alt="Islet Logo" />
 </p>
 
 <h1 align="center">Islet</h1>
@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/Electron-33-47848F?style=flat-square&logo=electron" alt="Electron" />
   <img src="https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react" alt="React" />
   <img src="https://img.shields.io/badge/TypeScript-5.6-3178C6?style=flat-square&logo=typescript" alt="TypeScript" />
-  <a href="../LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License: MIT" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License: MIT" /></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-Welcome-brightgreen?style=flat-square" alt="PRs Welcome" /></a>
 </p>
 
@@ -101,7 +101,7 @@ Whether you're listening to Spotify, monitoring a long-running coding task in Go
    ```powershell
    npm run dist
    ```
-   *The installer executable (`Islet Setup <version>.exe`) will be generated inside the `dist/` directory.*
+   *The installer executable (`Islet Setup <version>.exe`) will be generated inside the `release/` directory.*
 
 ---
 
@@ -208,8 +208,15 @@ For details on reporting security vulnerabilities, please refer to our [Security
 
 ## 📄 License
 
-This project is licensed under the [MIT License](../LICENSE) © 2026 Keerthan Reddy.
+This project is licensed under the [MIT License](LICENSE) © 2026 Keerthan Reddy.
 
 <p align="center">
   Crafted with care by <a href="https://github.com/Keerthanreddy01">Keerthan Reddy</a> and contributors.
 </p>
+
+
+## Community & Security
+
+- [Contributing guide](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security policy](SECURITY.md)
