@@ -101,7 +101,7 @@ Whether you're listening to Spotify, monitoring a long-running coding task in Go
    ```powershell
    npm run dist
    ```
-   *The installer executable (`Islet Setup <version>.exe`) will be generated inside the `dist/` directory.*
+   *The installer executable (`Islet Setup <version>.exe`) will be generated inside the `release/` directory.*
 
 ---
 
@@ -213,3 +213,10 @@ This project is licensed under the [MIT License](LICENSE) © 2026 Keerthan Reddy
 <p align="center">
   Crafted with care by <a href="https://github.com/Keerthanreddy01">Keerthan Reddy</a> and contributors.
 </p>
+
+
+## Community & Security
+
+- [Contributing guide](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security policy](SECURITY.md)
