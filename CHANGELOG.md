@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.1.0] - 2026-10-24
+## [0.1.0] - 2026-10-30
 
 ### Added
 - **Dynamic Island Architecture**: Fluid Windows top-anchored capsule with hover expansion, physics-based spring easing, and auto-centering.
@@ -28,8 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AI Developer Agent Monitor**: Real-time task tracking and live tool introspection for Google Antigravity, Claude Code, and OpenAI Codex.
 - **Dual-Activity Multitasking**: Seamlessly swap primary and secondary widget focus between media and active AI agent sessions (`⇄`).
 - **Apple-Inspired Timer Dial**: Precision rotary ruler dial for frictionless minute timer countdowns.
-- **Windows Screen Time Radar**: Daily and weekly screen usage radar visualization and active uptime monitor.
-- **Floating Shelf**: Fast scratchpad tray for stashing workflow clips and notes.
+- **Windows Screen Time Radar**: Daily and weekly screen usage radar visualization across all 7 days with active uptime monitoring.
+- **Saved Files & Clipboard Shelf**: Capacity-controlled image tray with strict 6-image limit (browse, drag-and-drop, and `Ctrl+V` paste), compact 80×80 thumbnail cards, horizontal wheel scroll forwarding, native drag-out, and clipboard copy.
+- **Hardened Electron Security**: Upgraded to Electron 45.1.0 runtime (Chromium 156 / Node 24), resolving all upstream runtime CVEs; context isolation; strict CSP; external window lockdown via `setWindowOpenHandler` with default browser delegation; and strict `will-navigate` application file validation.
 - **Global Hotkey Support**: Quick toggle via `Ctrl + Alt + Space`.
 - **System Tray Integration**: Custom tray icon with quick settings, autostart toggle, and quit controls.
 - **NSIS Windows Installer**: Custom packaged setup wizard with desktop and startup options.

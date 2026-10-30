@@ -94,7 +94,7 @@ We follow a structured Git feature branch workflow:
 
 1. **TypeScript First**:
    - Strict typing is enforced. Avoid `any` wherever possible.
-   - All IPC messages between Electron main process and React renderer must be typed in [electron/ipc.ts](../electron/ipc.ts).
+   - All IPC messages between Electron main process and React renderer must be typed in [electron/ipc.ts](electron/ipc.ts).
 
 2. **Design & UX Philosophy**:
    - **No UI Clutter**: Islet is an ambient, distraction-free companion. Minimalist aesthetics and fluid physics-based spring animations (via Framer Motion) are paramount.
