@@ -33,7 +33,7 @@
     "electron": "^45.1.0",
     "electron-builder": "^25.1.8",
     "framer-motion": "^11.11.17",
-    "postcss": "^8.5.31",
+    "postcss": "^8.5.32",
     "prettier": "^3.3.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
