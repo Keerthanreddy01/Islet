@@ -1906,10 +1906,13 @@ export function App() {
   }, [isTimerRunning, customMinutes]);
 
   // Temporary Image Storage (Drag & Drop Shelf)
+  const MAX_SAVED_IMAGES = 6;
   const [storedImages, setStoredImages] = useState<StoredImage[]>([]);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [showSavedToast, setShowSavedToast] = useState(false);
+  const [shelfNotice, setShelfNotice] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
   const mediaClearTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -2379,25 +2382,34 @@ export function App() {
     }
   };
 
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounter.current = 0;
-    setIsDraggingFile(false);
-    window.islet?.window.setIgnoreMouseEvents?.(false);
-
-    const files = Array.from(e.dataTransfer.files).filter((file) =>
+  const addImagesToShelf = useCallback(async (files: File[]) => {
+    const imageFiles = files.filter((file) =>
       file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.name)
     );
 
-    if (files.length === 0) return;
+    if (imageFiles.length === 0) return;
+
+    const currentCount = storedImages.length;
+    if (currentCount >= MAX_SAVED_IMAGES) {
+      setShelfNotice("Maximum 6 images reached");
+      setShowSavedToast(true);
+      setTimeout(() => {
+        setShowSavedToast(false);
+        setShelfNotice(null);
+      }, 2200);
+      return;
+    }
+
+    const availableSlots = MAX_SAVED_IMAGES - currentCount;
+    const filesToAdd = imageFiles.slice(0, availableSlots);
+    const wasTruncated = imageFiles.length > availableSlots;
 
     const now = new Date();
     const timeStr = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
     const newStored: StoredImage[] = [];
 
-    for (const file of files) {
+    for (const file of filesToAdd) {
       let filePath = "";
       if (window.islet?.shelf?.getPathForFile) {
         filePath = window.islet.shelf.getPathForFile(file) || "";
@@ -2419,7 +2431,7 @@ export function App() {
 
       newStored.push({
         id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        name: file.name,
+        name: file.name || `image-${Date.now()}.png`,
         filePath,
         url: URL.createObjectURL(file),
         size: file.size,
@@ -2427,14 +2439,74 @@ export function App() {
       });
     }
 
-    setStoredImages((prev) => [...newStored, ...prev]);
-    setActiveTab("shelf");
-    setShowSavedToast(true);
-    setTimeout(() => setShowSavedToast(false), 1800);
+    if (newStored.length > 0) {
+      setStoredImages((prev) => [...prev, ...newStored].slice(0, MAX_SAVED_IMAGES));
+      setActiveTab("shelf");
+      if (wasTruncated || currentCount + newStored.length >= MAX_SAVED_IMAGES) {
+        setShelfNotice("Maximum 6 images reached");
+      } else {
+        setShelfNotice(null);
+      }
+      setShowSavedToast(true);
+      setTimeout(() => {
+        setShowSavedToast(false);
+        setShelfNotice(null);
+      }, 2200);
 
-    // Expand smoothly to show the stored temporary images
-    if (!isExpanded) {
-      triggerExpand();
+      // Expand smoothly to show the stored temporary images
+      if (!isExpanded) {
+        triggerExpand(176);
+      }
+    }
+  }, [storedImages.length, isExpanded, triggerExpand]);
+
+  // Global clipboard image paste support
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+
+      const clipboardData = e.clipboardData;
+      if (!clipboardData) return;
+
+      const files: File[] = [];
+      if (clipboardData.files && clipboardData.files.length > 0) {
+        for (const file of Array.from(clipboardData.files)) {
+          if (file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.name)) {
+            files.push(file);
+          }
+        }
+      }
+      if (files.length === 0 && clipboardData.items) {
+        for (const item of Array.from(clipboardData.items)) {
+          if (item.type.startsWith("image/")) {
+            const file = item.getAsFile();
+            if (file) files.push(file);
+          }
+        }
+      }
+
+      if (files.length > 0) {
+        e.preventDefault();
+        void addImagesToShelf(files);
+      }
+    };
+
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [addImagesToShelf]);
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current = 0;
+    setIsDraggingFile(false);
+    window.islet?.window.setIgnoreMouseEvents?.(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      await addImagesToShelf(Array.from(e.dataTransfer.files));
     }
   };
 
@@ -2495,7 +2567,7 @@ export function App() {
       : 0;
 
   const isSettingsActive = activeTab === "settings";
-  const isShelfActive = activeTab === "shelf" && storedImages.length > 0;
+  const isShelfActive = activeTab === "shelf";
   const isTimerActive = activeTab === "timer";
   const isScreenTimeActive = activeTab === "screentime";
   const isAgentActive = Boolean(
@@ -2663,13 +2735,13 @@ export function App() {
         <AnimatePresence>
           {showSavedToast && (
             <motion.div
-              className="drop-toast-pill"
+              className={`drop-toast-pill ${shelfNotice ? "is-warning" : ""}`}
               initial={{ opacity: 0, y: -8, scale: 0.9 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -6, scale: 0.92 }}
               transition={{ type: "spring", stiffness: 460, damping: 28, mass: 0.5 }}
             >
-              <span>✓ Saved in Shelf</span>
+              <span>{shelfNotice || "✓ Saved in Shelf"}</span>
             </motion.div>
           )}
         </AnimatePresence>
@@ -2699,8 +2771,8 @@ export function App() {
                 <div className="shelf-header">
                   <div className="shelf-title-wrap" onPointerDown={(e) => e.stopPropagation()}>
                     <span className="shelf-brand">Saved Files</span>
-                    <span className="shelf-count-tag">
-                      {storedImages.length} {storedImages.length === 1 ? "file" : "files"}
+                    <span className={`shelf-count-tag ${storedImages.length >= MAX_SAVED_IMAGES ? "is-limit" : ""}`}>
+                      {storedImages.length} / {MAX_SAVED_IMAGES}
                     </span>
                   </div>
 
@@ -2724,52 +2796,107 @@ export function App() {
                         <span className="shelf-song-title">Song</span>
                       </button>
                     )}
-                    <button className="shelf-clear-btn" onClick={clearAllStoredImages}>
-                      Clear All
-                    </button>
+                    {storedImages.length > 0 && (
+                      <button className="shelf-clear-btn" onClick={clearAllStoredImages}>
+                        Clear All
+                      </button>
+                    )}
                     <button className="shelf-close-btn" onClick={triggerCollapse} title="Close">
                       <CloseIcon />
                     </button>
                   </div>
                 </div>
 
-                {/* Image List Strip */}
-                <div className="shelf-items-strip" onPointerDown={(e) => e.stopPropagation()}>
-                  {storedImages.map((img) => (
-                    <div
-                      key={img.id}
-                      className="shelf-image-card"
-                      title={`${img.name}\n• Drag out to upload anywhere\n• Click Copy to paste`}
-                      draggable={Boolean(img.filePath)}
-                      onDragStart={(e) => handleCardDragStart(e, img)}
-                    >
-                      <img src={img.url} alt={img.name} draggable={false} />
-                      <div className="shelf-card-overlay">
-                        <button
-                          className={`shelf-action-btn ${copiedId === img.id ? "copied" : ""}`}
-                          onClick={(e) => copyStoredImage(img, e)}
-                        >
-                          {copiedId === img.id ? "Copied!" : "Copy"}
-                        </button>
-                        <span className="shelf-drag-hint">Drag out ↗</span>
-                      </div>
-                      <button
-                        className="shelf-card-delete"
-                        onClick={(e) => removeStoredImage(img.id, e)}
-                        title="Remove"
-                      >
-                        ✕
-                      </button>
+                {/* Horizontal Scrolling Gallery Strip */}
+                <div
+                  className="shelf-items-strip"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onWheel={(e) => {
+                    if (e.deltaY !== 0) {
+                      e.currentTarget.scrollLeft += e.deltaY;
+                    }
+                  }}
+                >
+                  {storedImages.length === 0 ? (
+                    <div className="shelf-empty-state">
+                      <span className="shelf-empty-icon">📂</span>
+                      <span className="shelf-empty-text">No saved images</span>
+                      <span className="shelf-empty-sub">Drop images or paste with Ctrl+V (Max 6)</span>
                     </div>
-                  ))}
+                  ) : (
+                    storedImages.map((img) => (
+                      <div
+                        key={img.id}
+                        className="shelf-image-card"
+                        title={`${img.name}\n• Drag out to upload anywhere\n• Click Copy to paste`}
+                        draggable={Boolean(img.filePath)}
+                        onDragStart={(e) => handleCardDragStart(e, img)}
+                      >
+                        <img src={img.url} alt={img.name} draggable={false} />
+                        <div className="shelf-card-overlay">
+                          <button
+                            className={`shelf-action-btn ${copiedId === img.id ? "copied" : ""}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              copyStoredImage(img, e);
+                            }}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            title="Copy image to clipboard"
+                          >
+                            {copiedId === img.id ? "Copied!" : "Copy"}
+                          </button>
+                          <span className="shelf-drag-hint">Drag out ↗</span>
+                        </div>
+                        <button
+                          className="shelf-card-delete"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeStoredImage(img.id, e);
+                          }}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          title="Remove image"
+                          aria-label="Remove image"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))
+                  )}
                 </div>
 
-                {/* Drop Zone Footer */}
+                {/* Drop Zone Footer with File Upload */}
                 <div
-                  className={`shelf-dropzone ${isDraggingFile ? "dragover" : ""}`}
+                  className={`shelf-dropzone ${isDraggingFile ? "dragover" : ""} ${storedImages.length >= MAX_SAVED_IMAGES ? "is-full" : ""}`}
+                  onClick={
+                    storedImages.length < MAX_SAVED_IMAGES
+                      ? () => fileInputRef.current?.click()
+                      : undefined
+                  }
                   onPointerDown={(e) => e.stopPropagation()}
+                  title={
+                    storedImages.length >= MAX_SAVED_IMAGES
+                      ? "Maximum 6 images reached"
+                      : "Click to browse images or drag and drop"
+                  }
                 >
-                  <span>Drop your images</span>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    style={{ display: "none" }}
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files.length > 0) {
+                        void addImagesToShelf(Array.from(e.target.files));
+                        e.target.value = "";
+                      }
+                    }}
+                  />
+                  {storedImages.length >= MAX_SAVED_IMAGES ? (
+                    <span className="shelf-limit-text">Maximum 6 images limit reached</span>
+                  ) : (
+                    <span>Drop your images or click to browse</span>
+                  )}
                 </div>
               </motion.div>
             ) : isTimerActive ? (
@@ -3304,7 +3431,7 @@ export function App() {
                     icon={<ClipboardSvg />}
                     label={storedImages.length > 0 ? `${storedImages.length} saved images (Click to view)` : "Clipboard Shelf"}
                     count={storedImages.length}
-                    active={activeTab === "shelf"}
+                    active={false}
                     onClick={() => {
                       switchTab("shelf");
                     }}
