@@ -38,3 +38,6 @@ jobs:
 
       - name: Run production build
         run: npm run build
+
+      - name: Run security test suite
+        run: npm run test:security

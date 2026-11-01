@@ -20,7 +20,7 @@
     "format": "prettier --write .",
     "lint": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "test": "npm run build:electron && node --test test/**/*.test.js",
-    "test:security": "npm run build:electron && node --test test/artwork-protocol-security.test.js",
+    "test:security": "node --test test/artwork-protocol-security.test.js",
     "postinstall": "node scripts/clean-binaries.cjs"
   },
   "dependencies": {
