@@ -15,6 +15,7 @@ import type {
 import { MediaService } from "./media-service.js";
 import { ScreenTimeService } from "./screentime-service.js";
 import { AgentService } from "./agent-service.js";
+import { resolveArtworkPath } from "./artwork-protocol.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 protocol.registerSchemesAsPrivileged([
@@ -1043,14 +1044,24 @@ app.whenReady().then(() => {
     return defaultMime;
   }
 
-  // Resilient artwork protocol handler
+  // Resilient and secure artwork protocol handler
   protocol.handle("islet-art", async (request) => {
     try {
-      const url = new URL(request.url);
-      const rawName = url.pathname.replace(/^\/+/, "") || url.hostname || url.host;
-      const fileName = decodeURIComponent(rawName);
+      const artworkDir = path.resolve(__dirname, "../assets/artwork");
+      const resolution = resolveArtworkPath(request.url, artworkDir);
 
-      if (fileName.includes("live-artwork") || fileName.includes("current-art")) {
+      if (resolution.status === "rejected") {
+        log(`[islet-art] Security rejected request: url="${request.url}", reason="${resolution.error}"`);
+        return new Response(resolution.error, {
+          status: resolution.httpStatus,
+          headers: {
+            "Content-Type": "text/plain",
+            "Cache-Control": "no-store, no-cache, must-revalidate"
+          }
+        });
+      }
+
+      if (resolution.status === "valid_live") {
         let livePath = mediaService.getCurrentArtworkPath();
 
         // Bounded retry in case file is in the process of atomic flush or write
@@ -1087,14 +1098,15 @@ app.whenReady().then(() => {
         });
       }
 
-      if (!fileName || fileName === "/" || fileName === ".") {
-        return new Response("Invalid artwork request", { status: 400 });
-      }
-
-      const filePath = path.join(__dirname, "../assets/artwork", fileName);
+      // Valid static artwork request strictly contained inside assets/artwork
+      const filePath = resolution.filePath;
       if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
         const data = fs.readFileSync(filePath);
-        const mime = fileName.endsWith(".svg") ? "image/svg+xml" : detectImageMimeType(data, "image/png");
+        const mime =
+          resolution.mimeType === "image/svg+xml"
+            ? "image/svg+xml"
+            : detectImageMimeType(data, resolution.mimeType);
+
         return new Response(data, {
           headers: {
             "Content-Type": mime,
@@ -1106,7 +1118,10 @@ app.whenReady().then(() => {
     } catch (err) {
       log("Failed to serve artwork:", err);
     }
-    return new Response("Artwork not found", { status: 404 });
+    return new Response("Artwork not found", {
+      status: 404,
+      headers: { "Cache-Control": "no-store, no-cache, must-revalidate" }
+    });
   });
 
   createWindow();
