@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -33,7 +34,7 @@ export type ArtworkRequestResult =
     }
   | {
       status: "rejected";
-      httpStatus: 400 | 403;
+      httpStatus: 400 | 403 | 404;
       error: string;
     };
 
@@ -46,7 +47,8 @@ export function getDefaultArtworkDir(): string {
 
 /**
  * Validates and resolves an `islet-art://` request URL against path traversal,
- * URL-encoded traversal, absolute paths, and unsupported extensions.
+ * URL-encoded traversal, absolute paths, escaping symlinks, directory targets,
+ * and unsupported extensions.
  */
 export function resolveArtworkPath(
   requestUrl: string,
@@ -98,9 +100,14 @@ export function resolveArtworkPath(
     };
   }
 
-  // 4. Iterative decoding check to catch nested/double percent-encoding evasion
+  // 4. Iterative decoding loop (up to 10 passes) to catch multi-level/nested percent-encoding evasion
+  // and validate against malformed percent encodings (e.g. %ZZ, %E0%A4%A)
   let testDecoded = requestUrl;
-  for (let i = 0; i < 3; i++) {
+  let previous = "";
+  let passes = 0;
+  while (testDecoded !== previous && passes < 10) {
+    previous = testDecoded;
+    passes++;
     try {
       testDecoded = decodeURIComponent(testDecoded);
     } catch {
@@ -201,13 +208,13 @@ export function resolveArtworkPath(
   const resolvedBase = path.resolve(artworkDir);
   const resolvedPath = path.resolve(resolvedBase, decodedCandidate);
 
-  // 10. Verify that the resolved path is strictly inside resolvedBase
+  // 10. Verify that the resolved path is lexically contained strictly inside resolvedBase
   const relative = path.relative(resolvedBase, resolvedPath);
   const isContained =
     !relative.startsWith("..") &&
     !path.isAbsolute(relative) &&
     relative !== "" &&
-    resolvedPath.startsWith(resolvedBase + path.sep);
+    resolvedPath.toLowerCase().startsWith(resolvedBase.toLowerCase() + path.sep);
 
   if (!isContained) {
     return {
@@ -224,6 +231,92 @@ export function resolveArtworkPath(
       status: "rejected",
       httpStatus: 400,
       error: `Unsupported artwork extension: ${ext || "none"}`
+    };
+  }
+
+  // 12. Symlink protection & regular file verification:
+  // If the filesystem entry exists, ensure its real path stays strictly within the real artwork directory
+  // and that the entry is a regular file, not a directory or an external symlink target.
+  const lstat = fs.lstatSync(resolvedPath, { throwIfNoEntry: false });
+  if (lstat) {
+    // If the path points directly to a directory (even one ending in .svg), reject it
+    if (lstat.isDirectory()) {
+      return {
+        status: "rejected",
+        httpStatus: 400,
+        error: "Artwork target is a directory, not a regular file"
+      };
+    }
+
+    // Resolve the real filesystem path of the base directory and candidate file
+    let realBase: string;
+    try {
+      realBase = fs.realpathSync(resolvedBase);
+    } catch {
+      realBase = resolvedBase;
+    }
+
+    let realTarget: string;
+    try {
+      realTarget = fs.realpathSync(resolvedPath);
+    } catch {
+      return {
+        status: "rejected",
+        httpStatus: 404,
+        error: "Artwork target not found"
+      };
+    }
+
+    // Verify real target is inside real base directory
+    const realRelative = path.relative(realBase, realTarget);
+    const isRealContained =
+      !realRelative.startsWith("..") &&
+      !path.isAbsolute(realRelative) &&
+      realRelative !== "" &&
+      realTarget.toLowerCase().startsWith(realBase.toLowerCase() + path.sep);
+
+    if (!isRealContained) {
+      return {
+        status: "rejected",
+        httpStatus: 403,
+        error: "Symlink escapes artwork directory"
+      };
+    }
+
+    // Ensure real target is a regular file
+    let realStat: fs.Stats;
+    try {
+      realStat = fs.statSync(realTarget);
+    } catch {
+      return {
+        status: "rejected",
+        httpStatus: 404,
+        error: "Artwork target stat failed"
+      };
+    }
+
+    if (!realStat.isFile()) {
+      return {
+        status: "rejected",
+        httpStatus: 400,
+        error: "Artwork target is not a regular file"
+      };
+    }
+
+    // Ensure real target extension is also allowed
+    const realExt = path.extname(realTarget).toLowerCase();
+    if (!ALLOWED_ARTWORK_EXTENSIONS.has(realExt)) {
+      return {
+        status: "rejected",
+        httpStatus: 400,
+        error: `Unsupported target extension: ${realExt || "none"}`
+      };
+    }
+
+    return {
+      status: "valid_static",
+      filePath: realTarget,
+      mimeType: EXTENSION_MIME_MAP[realExt] || "image/png"
     };
   }
 
