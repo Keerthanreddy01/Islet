@@ -53,7 +53,7 @@ describe("Content Security Policy (CSP) Security Suite", () => {
     });
 
     test("script-src explicitly defined and does not allow wildcard or untrusted remote origins", () => {
-      assert.ok(directives["script-src"], "script-src must be explicitly declared");
+      assert.ok(directives["script-src"], "script-src must be defined");
       assert.ok(directives["script-src"].includes("'self'"));
       assert.ok(!directives["script-src"].includes("data:"));
       assert.ok(!directives["script-src"].includes("https:"));
@@ -114,6 +114,19 @@ describe("Content Security Policy (CSP) Security Suite", () => {
       assert.ok(directives["connect-src"].includes("'self'"));
       assert.ok(directives["connect-src"].includes("https:"));
       assert.ok(directives["connect-src"].includes("islet-art:"));
+    });
+
+    test("production img-src preserves islet-art, blob, and https for artwork and saved shelf previews", () => {
+      assert.ok(directives["img-src"], "img-src must be defined in production CSP");
+      assert.ok(directives["img-src"].includes("islet-art:"), "must allow islet-art protocol for artwork");
+      assert.ok(directives["img-src"].includes("blob:"), "must allow blob: for saved file previews");
+      assert.ok(directives["img-src"].includes("https:"), "must allow https: for remote album covers");
+      assert.ok(directives["img-src"].includes("'self'"), "must allow 'self'");
+    });
+
+    test("production style-src and font-src preserve Google Fonts and inline styles", () => {
+      assert.ok(directives["style-src"].includes("https://fonts.googleapis.com"));
+      assert.ok(directives["font-src"].includes("https://fonts.gstatic.com"));
     });
 
     test("production object-src, base-uri, form-action, and frame-src are strictly locked down", () => {
